@@ -1,0 +1,14 @@
+{
+  "rows_scored": 1034,
+  "complexity_distribution": {
+    "Medium": 741,
+    "Low": 169,
+    "High": 124
+  },
+  "average_complexity_score": 2.94,
+  "open_ticket_complexity_distribution": {
+    "Medium": 217,
+    "Low": 52,
+    "High": 3
+  }
+}

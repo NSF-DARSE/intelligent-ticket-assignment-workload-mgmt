@@ -1,0 +1,9 @@
+{
+  "open_ticket_count": 272,
+  "completed_ticket_count": 762,
+  "match_rows": 1360,
+  "summary_rows": 272,
+  "top_k": 5,
+  "average_top_similarity": 0.8459,
+  "average_estimated_resolution_hours_nlp": 109.78
+}

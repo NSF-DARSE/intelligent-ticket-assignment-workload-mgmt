@@ -1,0 +1,32 @@
+DROP TABLE IF EXISTS public.autotask_raw;
+
+CREATE TABLE public.autotask_raw (
+    ticket_id TEXT,
+    title TEXT,
+    description TEXT,
+    account TEXT,
+    location TEXT,
+    status TEXT,
+    priority TEXT,
+    source TEXT,
+    estimated_hours TEXT,
+    primary_resource TEXT,
+    role TEXT,
+    queue TEXT,
+    ticket_type TEXT,
+    ticket_category TEXT,
+    issue_type TEXT,
+    sub_issue_type TEXT,
+    work_type TEXT,
+    contract_name TEXT,
+    sla TEXT,
+    created_at TEXT,
+    created_by TEXT,
+    completed_at TEXT,
+    due_at TEXT,
+    first_response_at TEXT,
+    resolution TEXT,
+    completed_by TEXT,
+    is_legacy TEXT,
+    priority_numeric TEXT
+);

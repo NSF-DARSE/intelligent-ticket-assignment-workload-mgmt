@@ -1,0 +1,18 @@
+{
+  "training_rows": 762,
+  "test_rows": 153,
+  "open_ticket_rows": 272,
+  "baseline_mae_hours": 57.08,
+  "baseline_rmse_hours": 66.87,
+  "baseline_r2_score": 0.0113,
+  "mae_hours": 63.84,
+  "rmse_hours": 77.63,
+  "r2_score": -0.3326,
+  "hybrid_mae_hours": 57.07,
+  "hybrid_rmse_hours": 66.81,
+  "hybrid_r2_score": 0.0131,
+  "model_plus_nlp_mae_hours": 60.02,
+  "median_absolute_error_hours": 58.15,
+  "average_predicted_open_resolution_hours": 117.85,
+  "model_type": "Safe hybrid estimator: issue-type baseline + RandomForest + NLP similarity estimate"
+}

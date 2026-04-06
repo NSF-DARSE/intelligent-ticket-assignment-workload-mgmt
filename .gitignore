@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.env
+outputs/
+RESULTS FOR PHASE2/
+temp_test_write.txt
+.streamlit/

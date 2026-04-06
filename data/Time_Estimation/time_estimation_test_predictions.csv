@@ -1,0 +1,154 @@
+ticket_id,title,priority,sla_priority_class,issue_type,actual_resolution_hours,predicted_resolution_hours_baseline,predicted_resolution_hours_model,nlp_estimated_resolution_hours,predicted_resolution_hours_hybrid,predicted_resolution_hours_final,absolute_error_hours
+T20260211.0008,Outlook not syncing emails,Medium,Service Request,Triage,134.5,138.5,121.61,124.3,122.69,135.39,0.89
+T20260107.0002,File recovery request,Medium,Service Request,SW:Internal,124.5,128.0,98.45,132.0,111.87,125.44,0.94
+T20260131.0008,Request to install project management software,Low,Service Request,SW:Change,123.0,128.0,116.71,74.7,99.91,121.54,1.46
+T20260101.0015,Windows update causing BSOD,Critical,Maintenance,SW:Internal,129.5,128.0,73.14,181.3,116.4,127.84,1.66
+T20251226.0007,Server room temperature alert,Critical,High,SW:Defect,119.5,116.0,80.14,151.6,108.72,115.97,3.53
+T20260101.0007,Network printer offline,High,High,SW:Support,122.5,119.0,100.11,137.4,115.03,118.95,3.55
+T20260110.0010,Request to install project management software,Low,Service Request,IT:Hardware,109.0,118.0,116.29,74.7,99.66,113.5,4.5
+T20260128.0006,Wi-Fi connectivity issues in conference room B,Medium,Service Request,SW:Change,121.0,128.0,107.6,130.3,116.68,126.19,5.19
+T20251211.0006,OneDrive sync errors,Medium,Medium,IT:Applications,95.5,106.5,72.24,97.6,82.39,102.18,6.68
+T20260128.0003,Keyboard and mouse not responding,Medium,Medium,Triage,123.5,138.5,125.27,82.7,108.24,131.6,8.1
+T20260224.0010,Shared drive access denied,Medium,Medium,SW:Internal,134.0,128.0,89.94,144.9,111.92,125.88,8.12
+T20260221.0008,Outlook not syncing emails,Medium,Service Request,SW:Change,114.5,128.0,78.77,124.3,96.98,122.71,8.21
+T20260119.0013,Request for additional monitor,Low,Service Request,SW:Change,130.5,128.0,108.52,87.8,100.23,122.03,8.47
+T20260211.0010,Monitor flickering on docking station,Medium,Medium,IT:Applications,92.0,106.5,59.17,93.9,73.06,100.51,8.51
+T20260207.0011,QuickBooks not launching after update,Medium,Maintenance,IT:Change,130.5,124.0,95.46,126.7,107.96,121.42,9.08
+T20260220.0016,Zoom meeting room setup,Low,Service Request,SW:Internal,130.5,128.0,109.27,80.2,97.64,121.35,9.15
+T20251225.0007,Suspicious phishing email reported,High,Service Request,IT:Hardware,101.0,118.0,55.31,117.1,80.03,111.64,10.64
+T20260210.0002,Outlook not syncing emails,Medium,Medium,SW:Internal,130.5,128.0,92.16,81.1,87.74,119.73,10.77
+T20260227.0008,New user account creation,Low,Service Request,SW:Internal,115.0,128.0,126.67,107.9,119.16,125.86,10.86
+T20260131.0009,VPN connection drops intermittently,High,Service Request,Triage,141.5,138.5,69.83,125.37,92.04,130.32,11.18
+T20260220.0008,Software license expired for Adobe Acrobat,Low,Service Request,SW:Internal,112.0,128.0,114.57,98.6,108.18,123.72,11.72
+T20251228.0007,File recovery request,Medium,Service Request,IT:Applications,113.0,106.5,25.31,134.3,68.91,101.16,11.84
+T20260207.0012,Request to install project management software,Low,Service Request,IT:Hardware,124.5,118.0,105.98,74.7,93.47,112.47,12.03
+T20260201.0009,File recovery request,Medium,Service Request,IT:Applications,85.5,106.5,21.76,114.6,58.9,98.84,13.34
+T20251225.0003,OneDrive sync errors,Medium,Medium,IT:Hardware,97.0,118.0,73.01,87.6,78.85,110.46,13.46
+T20260127.0004,Network printer offline,High,High,IT:Applications,96.0,106.5,87.41,162.8,117.56,110.22,14.22
+T20251224.0003,Outlook not syncing emails,Medium,Medium,SW:Internal,107.0,128.0,84.88,124.3,100.65,123.32,16.32
+T20251210.0005,Email bouncing back to external clients,Critical,Service Request,IT:Hardware,100.5,118.0,107.47,121.5,113.08,117.3,16.8
+T20260116.0012,Laptop battery not holding charge,Medium,Service Request,SW:Change,108.0,128.0,120.68,109.7,116.29,125.44,17.44
+T20260110.0006,OneDrive sync errors,Medium,Service Request,SW:Support,95.5,119.0,105.42,85.7,97.53,114.31,18.81
+T20260214.0003,Laptop battery not holding charge,Medium,Service Request,IT:Change,144.5,124.0,144.23,103.6,127.98,123.98,20.52
+T20251226.0011,New employee laptop setup,Low,Service Request,IT:Change,140.5,124.0,115.09,86.8,103.77,119.39,21.11
+T20251222.0011,Shared drive access denied,Medium,Medium,Triage,156.0,138.5,66.47,144.9,97.84,131.94,24.06
+T20251226.0010,Request to install project management software,Low,Service Request,IT:Change,92.0,124.0,97.09,75.6,88.5,116.47,24.47
+T20260101.0011,Email bouncing back to external clients,Critical,High,SW:Support,87.5,119.0,66.13,126.2,90.16,114.43,26.93
+T20260118.0005,Slow computer performance,Medium,Service Request,IT:Change,91.0,124.0,58.99,140.3,91.51,119.13,28.13
+T20260105.0007,Need access to CRM application,Low,Service Request,Triage,103.5,138.5,59.1,157.5,98.46,132.46,28.96
+T20251210.0011,Email bouncing back to external clients,Critical,High,IT:Applications,77.0,106.5,85.29,126.2,101.66,106.35,29.35
+T20260117.0006,Shared drive access denied,Medium,Service Request,SW:Internal,156.0,128.0,96.02,144.9,115.57,126.49,29.51
+T20251212.0009,Zoom meeting room setup,Low,Service Request,Triage,98.0,138.5,113.49,80.2,100.17,130.17,32.17
+T20251219.0006,Shared drive access denied,Medium,Medium,SW:Defect,144.0,116.0,71.52,118.2,90.19,111.77,32.23
+T20260219.0002,VPN connection drops intermittently,High,High,SW:Support,147.0,119.0,63.55,124.97,88.12,114.05,32.95
+T20251204.0016,Printer jamming on 2nd floor,Medium,Service Request,IT:Change,149.5,124.0,76.54,96.0,84.32,116.45,33.05
+T20260108.0002,Zoom meeting room setup,Low,Service Request,IT:Hardware,78.0,118.0,92.65,80.2,87.67,111.68,33.68
+T20260113.0009,Zoom meeting room setup,Low,Service Request,SW:Internal,84.0,128.0,93.83,80.2,88.38,119.8,35.8
+T20251231.0010,Software license expired for Adobe Acrobat,Low,Service Request,Triage,168.5,138.5,140.77,76.4,115.02,132.52,35.98
+T20251227.0005,New employee laptop setup,Low,Service Request,SW:Internal,86.0,128.0,112.8,86.8,102.4,122.36,36.36
+T20260130.0005,Password reset request,Low,Service Request,SW:Internal,86.0,128.0,87.87,118.1,99.96,123.0,37.0
+T20251225.0004,Printer jamming on 2nd floor,Medium,Medium,IT:Hardware,151.5,118.0,84.27,114.2,96.24,114.25,37.25
+T20260102.0008,QuickBooks not launching after update,Medium,Maintenance,IT:Hardware,76.0,118.0,94.19,103.3,97.84,114.15,38.15
+T20251203.0004,QuickBooks not launching after update,Medium,Maintenance,SW:Defect,150.0,116.0,76.79,111.3,90.59,111.61,38.39
+T20251223.0006,Desk phone not receiving calls,Medium,Medium,Triage,87.5,138.5,91.17,61.2,79.18,126.04,38.54
+T20251217.0009,Wi-Fi connectivity issues in conference room B,Medium,Medium,SW:Defect,162.0,116.0,166.07,139.0,155.24,123.31,38.69
+T20260122.0006,Laptop battery not holding charge,Medium,Medium,SW:Support,76.0,119.0,88.14,109.7,96.76,114.98,38.98
+T20260117.0005,Request to install project management software,Low,Service Request,SW:Support,152.0,119.0,103.12,74.7,91.75,112.98,39.02
+T20251215.0005,Network printer offline,High,High,SW:Support,79.0,119.0,96.73,134.4,111.8,118.31,39.31
+T20260105.0005,Windows update causing BSOD,Critical,Maintenance,IT:Hardware,157.0,118.0,84.41,144.3,108.37,117.27,39.73
+T20251230.0013,New employee laptop setup,Low,Service Request,SW:Internal,156.5,128.0,68.32,70.1,69.03,116.24,40.26
+T20260225.0010,New employee laptop setup,Low,Service Request,SW:Support,152.0,119.0,74.98,86.8,79.71,111.38,40.62
+T20260220.0009,Desk phone not receiving calls,Medium,Medium,SW:Internal,84.0,128.0,103.27,121.0,110.36,124.83,40.83
+T20260125.0004,QuickBooks not launching after update,Medium,Maintenance,SW:Internal,164.5,128.0,101.43,109.9,104.82,123.53,40.97
+T20251226.0015,MFA not working on mobile device,High,High,IT:Applications,142.5,106.5,81.33,73.7,78.28,100.7,41.8
+T20260302.0004,New employee laptop setup,Low,Service Request,SW:Defect,67.0,116.0,76.78,86.8,80.79,109.16,42.16
+T20260104.0005,MFA not working on mobile device,High,High,SW:Internal,76.5,128.0,54.12,114.8,78.39,119.29,42.79
+T20260208.0012,Printer jamming on 2nd floor,Medium,Service Request,IT:Change,164.0,124.0,68.3,131.8,93.7,119.21,44.79
+T20251204.0010,Backup job failed overnight,Critical,High,Triage,170.5,138.5,54.36,80.0,64.61,124.24,46.26
+T20260207.0006,Shared drive access denied,Medium,Medium,SW:Support,165.5,119.0,74.78,144.9,102.83,117.17,48.33
+T20251220.0010,Need access to CRM application,Low,Service Request,Triage,90.5,138.5,126.62,157.5,138.97,139.21,48.71
+T20260125.0011,Network printer offline,High,Service Request,IT:Change,73.0,124.0,74.29,164.0,110.18,123.03,50.03
+T20251220.0005,Server room temperature alert,Critical,High,IT:Hardware,167.0,118.0,51.03,151.6,91.26,114.66,52.34
+T20260126.0005,VPN connection drops intermittently,High,Service Request,SW:Defect,57.5,116.0,54.46,125.37,82.82,110.78,53.28
+T20251203.0007,Internet speed slow at branch office,High,Service Request,IT:Change,67.5,124.0,144.54,82.3,119.65,121.88,54.38
+T20260103.0006,VPN connection drops intermittently,High,Service Request,SW:Change,176.5,128.0,61.45,125.37,87.02,121.08,55.42
+T20260201.0004,Laptop battery not holding charge,Medium,Service Request,SW:Change,67.5,128.0,78.3,141.8,103.7,124.41,56.91
+T20260114.0006,Slow computer performance,Medium,Medium,IT:Hardware,173.0,118.0,74.04,142.9,101.58,116.09,56.91
+T20260107.0009,Shared drive access denied,Medium,Medium,SW:Defect,173.0,116.0,85.28,135.9,105.53,114.92,58.08
+T20251209.0007,Email bouncing back to external clients,Critical,High,SW:Support,169.5,119.0,53.85,107.7,75.39,111.35,58.15
+T20260219.0006,Request to install project management software,Low,Service Request,IT:Applications,162.5,106.5,114.22,74.7,98.41,104.09,58.41
+T20260106.0009,Suspicious phishing email reported,High,High,SW:Internal,178.5,128.0,57.92,117.1,81.59,119.9,58.6
+T20260206.0006,Printer jamming on 2nd floor,Medium,Service Request,SW:Support,53.5,119.0,76.03,100.1,85.66,112.81,59.31
+T20251207.0006,VPN connection drops intermittently,High,Service Request,IT:Applications,162.0,106.5,33.79,125.37,70.42,101.12,60.88
+T20251225.0002,Printer jamming on 2nd floor,Medium,Medium,Triage,190.0,138.5,71.41,111.5,87.45,129.09,60.91
+T20260124.0007,Wi-Fi connectivity issues in conference room B,Medium,Medium,SW:Defect,177.5,116.0,90.08,139.0,109.65,115.71,61.79
+T20251226.0012,Printer jamming on 2nd floor,Medium,Medium,IT:Hardware,180.0,118.0,76.53,160.6,110.16,118.11,61.89
+T20260131.0006,Teams calls have audio echo,Medium,Medium,Triage,194.5,138.5,103.14,111.4,106.44,132.25,62.25
+T20260301.0005,Suspicious phishing email reported,High,High,SW:Internal,179.5,128.0,78.98,60.4,71.55,116.34,63.16
+T20251211.0010,Backup job failed overnight,Critical,High,IT:Applications,164.0,106.5,58.25,93.6,72.39,100.38,63.62
+T20260113.0007,Keyboard and mouse not responding,Medium,Service Request,SW:Change,57.5,128.0,110.44,81.5,98.86,121.59,64.09
+T20260104.0002,Request to install project management software,Low,Service Request,SW:Defect,43.5,116.0,82.01,81.9,81.96,109.19,65.69
+T20251217.0010,New employee laptop setup,Low,Service Request,Triage,60.5,138.5,92.01,70.1,83.25,127.01,66.51
+T20260211.0005,Teams calls have audio echo,Medium,Medium,SW:Support,186.0,119.0,101.85,137.5,116.11,119.13,66.87
+T20251212.0010,Internet speed slow at branch office,High,Service Request,IT:Change,190.5,124.0,99.58,130.8,112.07,122.24,68.26
+T20251204.0008,Backup job failed overnight,Critical,Service Request,SW:Change,188.0,128.0,76.91,93.6,83.59,119.45,68.55
+T20260129.0009,Backup job failed overnight,Critical,High,SW:Internal,51.5,128.0,57.84,119.6,82.55,120.14,68.64
+T20260206.0005,Keyboard and mouse not responding,Medium,Service Request,SW:Change,51.5,128.0,102.43,75.7,91.74,120.21,68.71
+T20251204.0014,Slow computer performance,Medium,Service Request,IT:Change,193.5,124.0,110.98,140.3,122.71,124.33,69.17
+T20251212.0011,Zoom meeting room setup,Low,Service Request,SW:Change,48.5,128.0,77.35,80.2,78.49,118.15,69.65
+T20260119.0001,Email bouncing back to external clients,Critical,High,Triage,195.0,138.5,47.06,88.8,63.75,124.39,70.61
+T20260228.0003,Suspicious phishing email reported,High,Service Request,SW:Defect,41.5,116.0,80.44,117.1,95.11,112.55,71.05
+T20251219.0012,Server room temperature alert,Critical,High,IT:Applications,41.0,106.5,110.41,164.2,131.93,112.66,71.66
+T20251222.0008,Network printer offline,High,High,SW:Support,45.5,119.0,84.26,141.1,107.0,117.74,72.24
+T20260127.0013,File recovery request,Medium,Service Request,IT:Change,188.5,124.0,73.31,89.9,79.95,115.52,72.98
+T20260207.0013,Suspicious phishing email reported,High,Service Request,IT:Applications,29.5,106.5,69.2,117.1,88.36,103.83,74.33
+T20260302.0006,Shared drive access denied,Medium,Medium,SW:Internal,51.0,128.0,92.5,136.8,110.22,125.33,74.33
+T20260207.0015,Laptop battery not holding charge,Medium,Service Request,Triage,58.0,138.5,120.02,99.3,111.73,132.73,74.73
+T20260130.0007,Windows update causing BSOD,Critical,Maintenance,SW:Change,201.0,128.0,74.56,162.1,109.58,126.07,74.93
+T20251213.0005,Network printer offline,High,Service Request,IT:Change,48.5,124.0,115.79,137.4,124.43,124.52,76.02
+T20251225.0006,Printer jamming on 2nd floor,Medium,Service Request,IT:Hardware,187.5,118.0,73.92,96.0,82.75,111.39,76.11
+T20260215.0004,Suspicious phishing email reported,High,High,IT:Applications,24.5,106.5,41.83,117.1,71.94,101.09,76.59
+T20260201.0003,VPN connection drops intermittently,High,High,SW:Support,191.5,119.0,68.19,125.37,91.06,114.56,76.94
+T20251231.0005,Desk phone not receiving calls,Medium,Medium,Triage,207.5,138.5,108.79,68.4,92.63,128.52,78.98
+T20260123.0002,New user account creation,Low,Service Request,SW:Defect,30.5,116.0,88.92,84.1,86.99,110.1,79.6
+T20251222.0003,Desk phone not receiving calls,Medium,Medium,SW:Support,30.5,119.0,72.12,84.9,77.23,110.9,80.4
+T20260211.0004,Request to install project management software,Low,Service Request,SW:Change,37.0,128.0,83.8,73.5,79.68,118.13,81.13
+T20260219.0003,Wi-Fi connectivity issues in conference room B,Medium,Medium,SW:Internal,46.5,128.0,115.81,139.0,125.09,127.88,81.38
+T20251217.0005,Request to install project management software,Low,Service Request,SW:Internal,36.5,128.0,88.41,74.7,82.93,118.71,82.21
+T20251227.0008,Request for additional monitor,Low,Service Request,IT:Change,37.5,124.0,121.05,87.8,107.75,120.09,82.59
+T20260215.0010,Teams calls have audio echo,Medium,Medium,IT:Hardware,195.5,118.0,68.39,116.7,87.72,112.91,82.59
+T20260110.0008,Teams calls have audio echo,Medium,Medium,Triage,221.5,138.5,140.13,111.4,128.64,135.95,85.55
+T20251215.0011,New user account creation,Low,Service Request,Triage,216.5,138.5,86.49,107.9,95.06,130.24,86.26
+T20251223.0005,Desk phone not receiving calls,Medium,Medium,SW:Support,18.5,119.0,78.55,61.2,71.61,109.17,90.67
+T20260126.0007,VPN connection drops intermittently,High,High,SW:Defect,19.0,116.0,46.35,125.37,77.96,109.97,90.97
+T20260110.0009,Teams calls have audio echo,Medium,Medium,SW:Internal,217.5,128.0,122.63,111.4,118.14,125.8,91.7
+T20251211.0005,New employee laptop setup,Low,Service Request,SW:Internal,211.5,128.0,90.72,70.1,82.47,118.48,93.02
+T20260104.0008,QuickBooks not launching after update,Medium,Maintenance,SW:Internal,27.5,128.0,64.21,144.8,96.44,123.3,95.8
+T20260202.0004,Windows update causing BSOD,Critical,Maintenance,SW:Change,227.0,128.0,105.85,181.3,136.03,131.12,95.88
+T20260204.0004,Request for additional monitor,Low,Service Request,SW:Internal,219.5,128.0,110.5,87.8,101.42,122.23,97.27
+T20260228.0007,MFA not working on mobile device,High,Service Request,SW:Change,19.5,128.0,62.53,83.9,71.08,117.04,97.54
+T20260116.0014,Internet speed slow at branch office,High,Service Request,IT:Change,24.5,124.0,100.7,129.5,112.22,122.22,97.72
+T20260116.0007,Request for additional monitor,Low,Service Request,Triage,227.0,138.5,94.93,87.8,92.08,129.07,97.93
+T20251226.0013,Keyboard and mouse not responding,Medium,Medium,SW:Support,211.5,119.0,97.85,82.7,91.79,113.26,98.24
+T20251227.0015,Printer jamming on 2nd floor,Medium,Medium,SW:Defect,14.5,116.0,83.82,131.8,103.01,114.36,99.86
+T20251223.0003,Shared drive access denied,Medium,Medium,SW:Defect,218.5,116.0,112.53,144.9,125.48,118.54,99.96
+T20251222.0007,Software license expired for Adobe Acrobat,Low,Service Request,IT:Change,218.0,124.0,88.56,80.4,85.3,116.1,101.9
+T20260101.0017,Request for additional monitor,Low,Service Request,IT:Hardware,13.5,118.0,67.76,148.3,99.98,116.01,102.51
+T20260215.0013,Outlook not syncing emails,Medium,Service Request,Triage,233.5,138.5,73.87,124.3,94.04,130.62,102.88
+T20251207.0007,OneDrive sync errors,Medium,Medium,SW:Defect,4.0,116.0,89.35,65.4,79.77,108.28,104.28
+T20260208.0004,QuickBooks not launching after update,Medium,Maintenance,IT:Change,222.5,124.0,67.91,119.0,88.35,117.89,104.61
+T20260104.0003,QuickBooks not launching after update,Medium,Maintenance,IT:Hardware,6.5,118.0,90.12,111.3,98.59,114.54,108.04
+T20260208.0006,Request to install project management software,Low,Service Request,SW:Support,4.5,119.0,95.5,84.1,90.94,113.16,108.66
+T20260119.0015,New user account creation,Low,Service Request,SW:Defect,223.5,116.0,95.8,107.9,100.64,113.17,110.33
+T20260201.0007,Outlook not syncing emails,Medium,Service Request,SW:Change,10.5,128.0,66.68,124.3,89.73,121.5,111.0
+T20251205.0010,File recovery request,Medium,Service Request,SW:Change,235.5,128.0,90.8,118.1,101.72,123.29,112.21
+T20260116.0010,Teams calls have audio echo,Medium,Medium,SW:Defect,1.0,116.0,100.03,116.7,106.7,114.47,113.47
+T20260225.0006,Request for additional monitor,Low,Service Request,SW:Internal,239.5,128.0,108.27,87.8,100.08,122.01,117.49
+T20260301.0007,Need access to CRM application,Low,Service Request,IT:Hardware,233.0,118.0,54.71,135.0,86.82,113.37,119.63
+T20260101.0012,Request for additional monitor,Low,Service Request,SW:Defect,232.0,116.0,101.74,87.8,96.16,111.75,120.25
+T20251213.0009,MFA not working on mobile device,High,High,SW:Internal,238.0,128.0,62.99,83.9,71.35,117.09,120.91
+T20251211.0002,OneDrive sync errors,Medium,Medium,IT:Applications,225.5,106.5,117.4,67.6,97.48,103.7,121.8
+T20251224.0006,Network printer offline,High,High,Triage,10.0,138.5,81.87,131.0,101.52,132.09,122.09
+T20260212.0017,Desk phone not receiving calls,Medium,Medium,IT:Applications,232.5,106.5,127.37,122.1,125.26,110.15,122.35
+T20251219.0013,New employee laptop setup,Low,Service Request,SW:Support,235.0,119.0,76.76,86.8,80.78,111.56,123.44
+T20251216.0004,Software license expired for Adobe Acrobat,Low,Service Request,Triage,1.5,138.5,62.72,100.8,77.95,127.15,125.65

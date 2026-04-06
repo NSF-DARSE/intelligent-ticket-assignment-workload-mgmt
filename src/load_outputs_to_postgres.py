@@ -1,0 +1,129 @@
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+import pandas as pd
+from dotenv import load_dotenv
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import URL
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DATA_DIR = PROJECT_ROOT / "data"
+
+CSV_TABLE_MAP = {
+    DATA_DIR / "Cleaned_Data" / "autotask_cleaned_data.csv": "autotask_cleaned_data",
+    DATA_DIR / "Feature_Engineered" / "autotask_feature_engineered.csv": "autotask_feature_engineered",
+    DATA_DIR / "Feature_Engineered" / "autotask_training_dataset.csv": "autotask_training_dataset",
+    DATA_DIR / "Feature_Engineered" / "autotask_open_tickets_dataset.csv": "autotask_open_tickets_dataset",
+    DATA_DIR / "Feature_Engineered" / "technician_profiles.csv": "autotask_technician_profiles",
+    DATA_DIR / "NLP" / "ticket_similarity_matches.csv": "autotask_ticket_similarity_matches",
+    DATA_DIR / "NLP" / "ticket_similarity_summary.csv": "autotask_ticket_similarity_summary",
+    DATA_DIR / "Complexity" / "autotask_complexity_scored.csv": "autotask_complexity_scored",
+    DATA_DIR / "Recommendations" / "technician_workload_snapshot.csv": "autotask_technician_workload_snapshot",
+    DATA_DIR / "Recommendations" / "assignment_recommendations.csv": "autotask_assignment_recommendations",
+    DATA_DIR / "Time_Estimation" / "time_estimation_test_predictions.csv": "autotask_time_estimation_test_predictions",
+    DATA_DIR / "Time_Estimation" / "time_estimation_open_ticket_predictions.csv": "autotask_time_estimation_open_ticket_predictions",
+}
+
+JSON_TABLE_MAP = {
+    DATA_DIR / "Cleaned_Data" / "autotask_cleaning_summary.json": "autotask_cleaning_summary",
+    DATA_DIR / "Feature_Engineered" / "feature_engineering_summary.json": "autotask_feature_engineering_summary",
+    DATA_DIR / "NLP" / "nlp_similarity_summary.json": "autotask_nlp_similarity_summary",
+    DATA_DIR / "Complexity" / "complexity_scoring_summary.json": "autotask_complexity_scoring_summary",
+    DATA_DIR / "Recommendations" / "recommendation_summary.json": "autotask_recommendation_summary",
+    DATA_DIR / "Time_Estimation" / "time_estimation_metrics.json": "autotask_time_estimation_metrics",
+}
+
+DATETIME_COLUMNS = {
+    "created_at",
+    "completed_at",
+    "due_at",
+    "first_response_at",
+}
+
+
+def get_db_url() -> str:
+    load_dotenv(PROJECT_ROOT / ".env")
+
+    user = os.getenv("DB_USER", "postgres")
+    password = os.getenv("DB_PASSWORD", "2014")
+    if password == "your_password":
+        password = "2014"
+    host = os.getenv("DB_HOST", "localhost")
+    port = os.getenv("DB_PORT", "5432")
+    db_name = os.getenv("DB_NAME", "Intelligent Ticket Assignment & Workload Management")
+
+    return URL.create(
+        "postgresql+psycopg2",
+        username=user,
+        password=password,
+        host=host,
+        port=int(port),
+        database=db_name,
+    )
+
+
+def coerce_dataframe_types(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+
+    for column in df.columns:
+        if column in DATETIME_COLUMNS or column.endswith("_at"):
+            parsed = pd.to_datetime(df[column], errors="coerce")
+            if parsed.notna().sum() > 0:
+                df[column] = parsed
+
+    return df
+
+
+def load_csv_tables(engine) -> list[dict]:
+    results = []
+
+    for csv_path, table_name in CSV_TABLE_MAP.items():
+        df = pd.read_csv(csv_path)
+        df = coerce_dataframe_types(df)
+        df.to_sql(table_name, engine, if_exists="replace", index=False)
+        results.append({"table_name": table_name, "rows_loaded": int(len(df)), "source_file": str(csv_path)})
+
+    return results
+
+
+def load_json_tables(engine) -> list[dict]:
+    results = []
+
+    for json_path, table_name in JSON_TABLE_MAP.items():
+        payload = json.loads(json_path.read_text(encoding="utf-8"))
+        df = pd.DataFrame([{"source_file": str(json_path), "payload": json.dumps(payload)}])
+        df.to_sql(table_name, engine, if_exists="replace", index=False)
+        results.append({"table_name": table_name, "rows_loaded": 1, "source_file": str(json_path)})
+
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    f"ALTER TABLE {table_name} "
+                    "ALTER COLUMN payload TYPE jsonb USING payload::jsonb"
+                )
+            )
+
+    return results
+
+
+def main() -> None:
+    engine = create_engine(get_db_url())
+
+    csv_results = load_csv_tables(engine)
+    json_results = load_json_tables(engine)
+    all_results = csv_results + json_results
+
+    print("PostgreSQL output load completed.")
+    for result in all_results:
+        print(
+            f"{result['table_name']}: {result['rows_loaded']} rows loaded "
+            f"from {Path(result['source_file']).name}"
+        )
+
+
+if __name__ == "__main__":
+    main()

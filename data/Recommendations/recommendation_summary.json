@@ -1,0 +1,18 @@
+{
+  "open_ticket_count": 272,
+  "technician_pool_size": 4,
+  "recommendation_rows": 816,
+  "tickets_with_recommendations": 272,
+  "sla_priority_distribution_open": {
+    "Service Request": 130,
+    "Low": 48,
+    "High": 47,
+    "Medium": 32,
+    "Maintenance": 15
+  },
+  "complexity_distribution_open": {
+    "Medium": 217,
+    "Low": 52,
+    "High": 3
+  }
+}
