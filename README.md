@@ -11,7 +11,8 @@ The goal is to recommend the most suitable technician for incoming tickets by co
 - skill matching
 - priority balancing
 - SLA-aware prioritization
-- NLP-based ticket similarity
+- NLP-based ticket similarity with TF-IDF and BM25 hybrid ranking
+- sandbox API ingestion for live Autotask ticket refreshes
 
 The current implementation is focused on the data foundation needed for that system: raw data access, cleaning, and feature engineering.
 
@@ -23,11 +24,13 @@ Completed so far:
 - Phase 2: feature engineering and technician profiling
 - Phase 2: baseline SLA-aware assignment recommendation logic
 - Phase 2: NLP ticket similarity pipeline and NLP-enhanced recommendations
+- Phase 2: BM25-enhanced text expertise scoring for recommendations
 - Phase 2: time estimation model with safe hybrid prediction
 - Phase 2: explainable complexity scoring
+- Sandbox API pipeline for fetching live Autotask tickets into PostgreSQL
 - PostgreSQL loading of generated analytics outputs
 - Dashboard reporting for employee and ticket analytics
-- Interactive Streamlit dashboard for live filtering, drill-down, and exportable reports
+- Interactive Streamlit dashboard for live filtering, drill-down, workload management, and exportable reports
 
 Current outputs available:
 - raw ticket export
@@ -39,11 +42,13 @@ Current outputs available:
 - technician workload snapshot
 - SLA-aware assignment recommendations
 - NLP similarity matches and summaries
+- BM25/TF-IDF hybrid text match scores
 - time estimation metrics and predictions
 - complexity-scored ticket dataset
 - PostgreSQL analytics tables for processed outputs
 - employee ticket dashboard report
 - interactive dashboard app with filters, KPI cards, recommendation views, and downloadable tables
+- open-ticket recommendation board with current assignee and top-3 recommended technicians
 
 ## Project Structure
 
@@ -65,14 +70,17 @@ Project_Autotask
 |-- src
 |   |-- clean_ticket_data.py
 |   |-- assignment_scorer.py
+|   |-- autotask_api_client.py
 |   |-- db_connection.py
 |   |-- export_raw_data.py
+|   |-- fetch_sandbox_tickets.py
 |   |-- feature_engineering.py
 |   |-- generate_dashboard.py
 |   |-- interactive_dashboard.py
 |   |-- complexity_scoring.py
 |   |-- load_outputs_to_postgres.py
 |   |-- nlp_ticket_similarity.py
+|   |-- run_sandbox_pipeline.py
 |   |-- time_estimation_model.py
 |   `-- profiler_test.py
 |-- requirements.txt
@@ -94,6 +102,79 @@ Completed items:
 Key scripts:
 - `src/db_connection.py`
 - `src/export_raw_data.py`
+
+## Sandbox API Integration Setup
+
+The project can now pull live tickets from an Autotask sandbox API and normalize them into the same raw schema used by the existing Phase 2 pipeline.
+
+New scripts:
+- `src/autotask_api_client.py`
+- `src/fetch_sandbox_tickets.py`
+
+Configuration:
+- copy `.env.example` values into `.env`
+- set the sandbox API credentials:
+  - `AUTOTASK_API_BASE_URL`
+  - `AUTOTASK_API_USERNAME`
+  - `AUTOTASK_API_SECRET`
+  - `AUTOTASK_API_INTEGRATION_CODE`
+- optional:
+  - `AUTOTASK_ZONE_INFO_URL`
+  - `AUTOTASK_PAGE_SIZE`
+
+What the sandbox fetch does:
+- reads ticket data from the sandbox API
+- resolves company/resource/queue names when reference endpoints are available
+- maps the API response into the project raw-ticket schema
+- writes:
+  - `data/Raw_Data/autotask_sandbox_raw_data.csv`
+  - `data/Raw_Data/autotask_sandbox_fetch_summary.json`
+- optionally:
+  - replaces `data/Raw_Data/autotask_raw_data.csv`
+  - refreshes PostgreSQL table `autotask_raw`
+
+Run examples:
+
+Fetch sandbox tickets without touching the current historical raw file:
+
+```bash
+venv\Scripts\python.exe src\fetch_sandbox_tickets.py --days-back 365
+```
+
+Fetch all tickets from the sandbox without a created-date filter:
+
+```bash
+venv\Scripts\python.exe src\fetch_sandbox_tickets.py --all-tickets --replace-main-raw --load-postgres
+```
+
+Fetch open tickets only:
+
+```bash
+venv\Scripts\python.exe src\fetch_sandbox_tickets.py --days-back 90 --open-only
+```
+
+Fetch sandbox tickets and feed them into the current pipeline source:
+
+```bash
+venv\Scripts\python.exe src\fetch_sandbox_tickets.py --days-back 365 --replace-main-raw --load-postgres
+```
+
+Run the full sandbox-to-recommendation pipeline:
+
+```bash
+venv\Scripts\python.exe src\run_sandbox_pipeline.py --all-tickets
+```
+
+Suggested live workflow:
+1. pull sandbox tickets with `fetch_sandbox_tickets.py`
+2. if needed, replace the canonical raw file and PostgreSQL raw table
+3. rerun the existing Phase 2 pipeline:
+   - `clean_ticket_data.py`
+   - `feature_engineering.py`
+   - `nlp_ticket_similarity.py`
+   - `time_estimation_model.py`
+   - `complexity_scoring.py`
+   - `assignment_scorer.py`
 
 ## Phase 2: Data Cleaning
 
@@ -194,6 +275,9 @@ SLA-aware logic completed:
 - implemented a baseline rule-based assignment scorer
 - generated top-3 technician recommendations for each active ticket
 - included SLA class and workload rationale in recommendation outputs
+- added BM25/TF-IDF text expertise as a technician-match signal
+- added projected workload balancing so repeated top-1 recommendations increase a technician's effective load during the run
+- added fair-distribution penalties to avoid one technician receiving most open-ticket recommendations
 
 Recommendation scoring script:
 - `src/assignment_scorer.py`
@@ -203,7 +287,7 @@ Recommendation outputs:
 - `data/Recommendations/assignment_recommendations.csv`
 - `data/Recommendations/recommendation_summary.json`
 
-## Phase 2: NLP Ticket Similarity
+## Phase 2: NLP Ticket Similarity and BM25 Ranking
 
 An NLP similarity layer was added to improve ticket understanding beyond structured fields such as priority, queue, and issue type.
 
@@ -217,10 +301,17 @@ NLP logic completed:
 - normalized ticket text for analysis
 - built TF-IDF vectors with `scikit-learn`
 - computed cosine similarity between active tickets and completed historical tickets
+- added BM25 scoring for stronger search-style keyword matching
+- created a hybrid text score using TF-IDF and BM25 signals
 - returned top-5 historical matches for each active ticket
 - generated NLP-based estimated resolution hours
 - generated technician suggestions from similar historical tickets
-- integrated precomputed NLP outputs into the assignment scorer efficiently
+- integrated precomputed NLP/BM25 outputs into the assignment scorer efficiently
+
+BM25 improvement:
+- BM25 rewards rare, domain-specific ticket terms more effectively than plain frequency matching
+- the recommendation scorer now includes `bm25_text_expertise_score`
+- recommendation outputs also include `best_text_match_score`, `text_match_count`, and `best_text_match_rank`
 
 NLP script:
 - `src/nlp_ticket_similarity.py`
@@ -330,7 +421,7 @@ Summary tables loaded:
 
 Two dashboard layers are now available:
 - a static HTML dashboard for simple sharing and quick offline viewing
-- an interactive Streamlit dashboard for filtering, drill-down, and report exports
+- an interactive Streamlit dashboard for filtering, drill-down, workload management, and report exports
 
 Static dashboard includes:
 - overall ticket statistics
@@ -355,11 +446,15 @@ Dashboard output:
 
 Interactive dashboard includes:
 - sidebar filters for technician, priority, SLA class, complexity, issue type, and queue
-- KPI cards for ticket volume, high-complexity load, SLA breach risk, and average predicted effort
+- KPI cards for ticket volume, open tickets, assigned open tickets, unassigned open tickets, and recommendation coverage
 - overview charts for SLA, complexity, workload, and priority mix
 - attention table for tickets most in need of action
 - employee drill-down views
 - recommendation score and rationale reporting
+- open-ticket recommendation board showing current assignee and top-3 recommended technicians
+- workload-management plots for recommended technicians:
+  - top-3 recommendation load by technician
+  - rank-1 recommendation load by technician
 - time-estimation comparison views
 - downloadable CSV exports from the main report sections
 
@@ -369,17 +464,17 @@ Interactive dashboard script:
 ## Dataset Snapshot
 
 Current processed counts:
-- total tickets: `1034`
-- completed tickets: `762`
-- open tickets: `272`
+- total tickets: `1137`
+- completed tickets: `329`
+- open-ticket dataset rows: `881`
 - engineered feature columns: `81`
 - technician profiles generated: `4`
-- active tickets scored with recommendations: `272`
-- recommendation rows generated: `816`
-- NLP similarity matches generated: `1360`
-- time estimation test rows evaluated: `153`
-- time estimation open-ticket predictions generated: `272`
-- complexity rows scored: `1034`
+- active tickets scored with recommendations: `335`
+- recommendation rows generated: `1005`
+- NLP/BM25 similarity matches generated: `1675`
+- time estimation test rows evaluated: `52`
+- time estimation open-ticket predictions generated: `335`
+- complexity rows scored: `1137`
 - PostgreSQL analytics tables loaded successfully: `18`
 - dashboard report generated: `1`
 
@@ -388,7 +483,7 @@ Important observations:
 - `estimated_hours` has low variance, so it should not be treated as a strong predictor by itself
 - open historical tickets appear overdue relative to the current date, so overdue logic should be interpreted carefully during live scoring
 - SLA classification is currently rule-based using priority, queue, issue type, and ticket text patterns
-- NLP similarity performs well for repeated ticket patterns, but vague ticket titles still produce weaker matches
+- TF-IDF/BM25 hybrid similarity performs well for repeated ticket patterns, but vague ticket titles still produce weaker matches
 - the safe hybrid time estimator currently performs better than the raw standalone model, but accuracy still has room for improvement
 - complexity scoring is explainable and integrated, but thresholds can still be refined as more ticket history becomes available
 - processed outputs are now available both as files and as PostgreSQL tables for querying and dashboard use
@@ -413,9 +508,10 @@ Main libraries currently used:
 
 The next development steps are:
 - refine SLA classification with stronger text understanding
-- improve the recommendation engine with ticket similarity and technician specialization scoring
+- improve the recommendation engine with dispatcher feedback and technician specialization scoring
 - combine final estimated effort more directly into assignment scoring and dashboard views
-- connect the recommendation workflow to APIs later in the project
+- add assignment-log feedback so model weights can be tuned from dispatcher decisions
+- continue improving API-backed live workflows
 
 ## Progress Log
 
@@ -432,12 +528,14 @@ The next development steps are:
 - Technician workload snapshot generated for active tickets
 - Baseline SLA-aware assignment recommendations generated for open tickets
 - NLP similarity pipeline implemented using TF-IDF and cosine similarity
-- NLP outputs integrated into assignment recommendations through precomputed lookup-based scoring
+- BM25 ranking added and combined with TF-IDF as a hybrid text matching signal
+- NLP/BM25 outputs integrated into assignment recommendations through precomputed lookup-based scoring
 - Safe hybrid time estimation model implemented and evaluated on completed historical tickets
 - Explainable complexity scoring implemented and integrated into downstream outputs
 - Generated analytics outputs loaded into PostgreSQL tables for direct querying
 - Employee dashboard generated to visualize technician and ticket analytics
-- Interactive Streamlit dashboard upgraded with richer visuals, drill-down reporting, filters, and CSV exports
+- Interactive Streamlit dashboard upgraded with richer visuals, drill-down reporting, open-ticket assignment board, recommendation workload plots, filters, and CSV exports
+- Sandbox API ingestion added with `--all-tickets` support and a full `run_sandbox_pipeline.py` runner
 - README updated to reflect Phase 1 and Phase 2 progress
 
 ## Deliverables Completed So Far
@@ -452,7 +550,11 @@ The next development steps are:
 - `src/interactive_dashboard.py`
 - `src/load_outputs_to_postgres.py`
 - `src/nlp_ticket_similarity.py`
+- `src/autotask_api_client.py`
+- `src/fetch_sandbox_tickets.py`
+- `src/run_sandbox_pipeline.py`
 - `src/time_estimation_model.py`
+- `SCORING_FORMULA.txt`
 - `data/Cleaned_Data/autotask_cleaned_data.csv`
 - `data/Cleaned_Data/autotask_cleaning_summary.json`
 - `data/Feature_Engineered/autotask_feature_engineered.csv`
@@ -497,6 +599,12 @@ Run NLP ticket similarity:
 
 ```bash
 venv\Scripts\python.exe src/nlp_ticket_similarity.py
+```
+
+Run the full sandbox API pipeline using all tickets:
+
+```bash
+venv\Scripts\python.exe src\run_sandbox_pipeline.py --all-tickets
 ```
 
 Generate dashboard:

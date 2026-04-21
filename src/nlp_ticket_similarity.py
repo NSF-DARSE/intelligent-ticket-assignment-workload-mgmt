@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
+from collections import Counter
 
 import numpy as np
 import pandas as pd
@@ -16,6 +18,10 @@ SIMILARITY_SUMMARY_PATH = OUTPUT_DIR / "ticket_similarity_summary.csv"
 RUN_SUMMARY_PATH = OUTPUT_DIR / "nlp_similarity_summary.json"
 
 TOP_K = 5
+BM25_K1 = 1.5
+BM25_B = 0.75
+HYBRID_TFIDF_WEIGHT = 0.60
+HYBRID_BM25_WEIGHT = 0.40
 
 
 def load_feature_data() -> pd.DataFrame:
@@ -32,6 +38,64 @@ def normalize_text(series: pd.Series) -> pd.Series:
         .str.replace(r"\s+", " ", regex=True)
         .str.strip()
     )
+
+
+def tokenize(text: str) -> list[str]:
+    return [token for token in str(text).split() if token]
+
+
+def build_bm25_index(documents: pd.Series) -> dict:
+    tokenized_docs = [tokenize(text) for text in documents]
+    term_frequencies = [Counter(tokens) for tokens in tokenized_docs]
+    doc_lengths = np.array([len(tokens) for tokens in tokenized_docs], dtype=float)
+    avg_doc_length = float(doc_lengths.mean()) if len(doc_lengths) else 0.0
+
+    document_frequency: Counter[str] = Counter()
+    for tokens in tokenized_docs:
+        document_frequency.update(set(tokens))
+
+    document_count = len(tokenized_docs)
+    idf = {
+        term: math.log(1 + ((document_count - frequency + 0.5) / (frequency + 0.5)))
+        for term, frequency in document_frequency.items()
+    }
+
+    return {
+        "term_frequencies": term_frequencies,
+        "doc_lengths": doc_lengths,
+        "avg_doc_length": avg_doc_length,
+        "idf": idf,
+    }
+
+
+def bm25_scores(query: str, index: dict) -> np.ndarray:
+    term_frequencies = index["term_frequencies"]
+    doc_lengths = index["doc_lengths"]
+    avg_doc_length = index["avg_doc_length"] or 1.0
+    idf = index["idf"]
+    scores = np.zeros(len(term_frequencies), dtype=float)
+
+    for term in set(tokenize(query)):
+        term_idf = idf.get(term)
+        if term_idf is None:
+            continue
+
+        for doc_idx, frequencies in enumerate(term_frequencies):
+            frequency = frequencies.get(term, 0)
+            if frequency == 0:
+                continue
+
+            denominator = frequency + BM25_K1 * (1 - BM25_B + BM25_B * (doc_lengths[doc_idx] / avg_doc_length))
+            scores[doc_idx] += term_idf * ((frequency * (BM25_K1 + 1)) / denominator)
+
+    return scores
+
+
+def normalize_scores(scores: np.ndarray) -> np.ndarray:
+    maximum = float(np.max(scores)) if len(scores) else 0.0
+    if maximum <= 0:
+        return np.zeros_like(scores, dtype=float)
+    return scores / maximum
 
 
 def prepare_ticket_sets(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -62,7 +126,8 @@ def build_similarity_outputs(
 
     completed_matrix = vectorizer.fit_transform(completed["nlp_text"])
     open_matrix = vectorizer.transform(open_tickets["nlp_text"])
-    similarity_matrix = cosine_similarity(open_matrix, completed_matrix)
+    tfidf_similarity_matrix = cosine_similarity(open_matrix, completed_matrix)
+    bm25_index = build_bm25_index(completed["nlp_text"])
 
     match_rows: list[dict] = []
     summary_rows: list[dict] = []
@@ -71,11 +136,19 @@ def build_similarity_outputs(
     open_reset = open_tickets.reset_index(drop=True)
 
     for open_idx, ticket in open_reset.iterrows():
-        scores = similarity_matrix[open_idx]
-        top_indices = np.argsort(scores)[::-1][:TOP_K]
-        top_scores = scores[top_indices]
+        tfidf_scores = tfidf_similarity_matrix[open_idx]
+        raw_bm25_scores = bm25_scores(ticket["nlp_text"], bm25_index)
+        normalized_bm25_scores = normalize_scores(raw_bm25_scores)
+        hybrid_scores = (HYBRID_TFIDF_WEIGHT * tfidf_scores) + (HYBRID_BM25_WEIGHT * normalized_bm25_scores)
+
+        top_indices = np.argsort(hybrid_scores)[::-1][:TOP_K]
+        top_scores = hybrid_scores[top_indices]
         matched_tickets = completed_reset.iloc[top_indices].copy()
         matched_tickets["similarity_score"] = top_scores
+        matched_tickets["tfidf_similarity_score"] = tfidf_scores[top_indices]
+        matched_tickets["bm25_score"] = raw_bm25_scores[top_indices]
+        matched_tickets["bm25_score_normalized"] = normalized_bm25_scores[top_indices]
+        matched_tickets["hybrid_text_score"] = hybrid_scores[top_indices]
 
         weighted_resolution = np.average(
             matched_tickets["resolution_hours"], weights=np.clip(top_scores, 1e-6, None)
@@ -100,6 +173,10 @@ def build_similarity_outputs(
                     "matched_resolution_hours": round(float(match["resolution_hours"]), 2),
                     "matched_priority": match["priority"],
                     "similarity_score": round(float(match["similarity_score"]), 4),
+                    "tfidf_similarity_score": round(float(match["tfidf_similarity_score"]), 4),
+                    "bm25_score": round(float(match["bm25_score"]), 4),
+                    "bm25_score_normalized": round(float(match["bm25_score_normalized"]), 4),
+                    "hybrid_text_score": round(float(match["hybrid_text_score"]), 4),
                 }
             )
 
@@ -112,6 +189,14 @@ def build_similarity_outputs(
                 "issue_type": ticket["issue_type"],
                 "top_similarity_score": round(float(top_scores[0]), 4),
                 "avg_similarity_score_top5": round(float(np.mean(top_scores)), 4),
+                "top_tfidf_similarity_score": round(float(matched_tickets.iloc[0]["tfidf_similarity_score"]), 4),
+                "avg_tfidf_similarity_score_top5": round(float(matched_tickets["tfidf_similarity_score"].mean()), 4),
+                "top_bm25_score": round(float(matched_tickets.iloc[0]["bm25_score"]), 4),
+                "avg_bm25_score_top5": round(float(matched_tickets["bm25_score"].mean()), 4),
+                "top_bm25_score_normalized": round(float(matched_tickets.iloc[0]["bm25_score_normalized"]), 4),
+                "avg_bm25_score_normalized_top5": round(float(matched_tickets["bm25_score_normalized"].mean()), 4),
+                "top_hybrid_text_score": round(float(matched_tickets.iloc[0]["hybrid_text_score"]), 4),
+                "avg_hybrid_text_score_top5": round(float(matched_tickets["hybrid_text_score"].mean()), 4),
                 "estimated_resolution_hours_nlp": round(float(weighted_resolution), 2),
                 "median_resolution_hours_top5": round(float(median_resolution), 2),
                 "suggested_technician_from_similarity": top_technician,
@@ -130,7 +215,11 @@ def build_similarity_outputs(
         "match_rows": int(len(matches_df)),
         "summary_rows": int(len(summary_df)),
         "top_k": TOP_K,
+        "tfidf_weight": HYBRID_TFIDF_WEIGHT,
+        "bm25_weight": HYBRID_BM25_WEIGHT,
         "average_top_similarity": round(float(summary_df["top_similarity_score"].mean()), 4),
+        "average_top_bm25_score": round(float(summary_df["top_bm25_score"].mean()), 4),
+        "average_top_hybrid_text_score": round(float(summary_df["top_hybrid_text_score"].mean()), 4),
         "average_estimated_resolution_hours_nlp": round(
             float(summary_df["estimated_resolution_hours_nlp"].mean()), 2
         ),
