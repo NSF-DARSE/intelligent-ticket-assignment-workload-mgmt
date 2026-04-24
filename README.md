@@ -46,7 +46,6 @@ Current outputs available:
 - time estimation metrics and predictions
 - complexity-scored ticket dataset
 - PostgreSQL analytics tables for processed outputs
-- employee ticket dashboard report
 - interactive dashboard app with filters, KPI cards, recommendation views, and downloadable tables
 - open-ticket recommendation board with current assignee and top-3 recommended technicians
 
@@ -75,7 +74,6 @@ Project_Autotask
 |   |-- export_raw_data.py
 |   |-- fetch_sandbox_tickets.py
 |   |-- feature_engineering.py
-|   |-- generate_dashboard.py
 |   |-- interactive_dashboard.py
 |   |-- complexity_scoring.py
 |   |-- load_outputs_to_postgres.py
@@ -419,30 +417,8 @@ Summary tables loaded:
 
 ## Dashboard Reporting
 
-Two dashboard layers are now available:
-- a static HTML dashboard for simple sharing and quick offline viewing
+The project now uses one dashboard layer:
 - an interactive Streamlit dashboard for filtering, drill-down, workload management, and report exports
-
-Static dashboard includes:
-- overall ticket statistics
-- completed tickets by technician
-- open tickets by technician
-- average resolution hours by technician
-- open ticket priority mix by technician
-- technician summary table
-- employee-level detail cards with:
-  - completed ticket count
-  - open ticket count
-  - average resolution hours
-  - recommendation count
-  - top issue types solved
-  - current active tickets
-
-Dashboard script:
-- `src/generate_dashboard.py`
-
-Dashboard output:
-- `reports/dashboard/employee_ticket_dashboard.html`
 
 Interactive dashboard includes:
 - sidebar filters for technician, priority, SLA class, complexity, issue type, and queue
@@ -476,7 +452,7 @@ Current processed counts:
 - time estimation open-ticket predictions generated: `335`
 - complexity rows scored: `1137`
 - PostgreSQL analytics tables loaded successfully: `18`
-- dashboard report generated: `1`
+- interactive dashboard app available: `1`
 
 Important observations:
 - `sub_issue_type` and `work_type` are mostly missing, so they are currently weak modeling features
@@ -487,7 +463,7 @@ Important observations:
 - the safe hybrid time estimator currently performs better than the raw standalone model, but accuracy still has room for improvement
 - complexity scoring is explainable and integrated, but thresholds can still be refined as more ticket history becomes available
 - processed outputs are now available both as files and as PostgreSQL tables for querying and dashboard use
-- the static HTML dashboard remains useful for sharing, while the Streamlit dashboard is better for live analysis and demos
+- Streamlit is now the single supported dashboard for live analysis, demos, and reporting
 
 ## Tools and Libraries
 
@@ -533,7 +509,6 @@ The next development steps are:
 - Safe hybrid time estimation model implemented and evaluated on completed historical tickets
 - Explainable complexity scoring implemented and integrated into downstream outputs
 - Generated analytics outputs loaded into PostgreSQL tables for direct querying
-- Employee dashboard generated to visualize technician and ticket analytics
 - Interactive Streamlit dashboard upgraded with richer visuals, drill-down reporting, open-ticket assignment board, recommendation workload plots, filters, and CSV exports
 - Sandbox API ingestion added with `--all-tickets` support and a full `run_sandbox_pipeline.py` runner
 - README updated to reflect Phase 1 and Phase 2 progress
@@ -546,7 +521,6 @@ The next development steps are:
 - `src/assignment_scorer.py`
 - `src/feature_engineering.py`
 - `src/complexity_scoring.py`
-- `src/generate_dashboard.py`
 - `src/interactive_dashboard.py`
 - `src/load_outputs_to_postgres.py`
 - `src/nlp_ticket_similarity.py`
@@ -573,8 +547,6 @@ The next development steps are:
 - `data/Recommendations/technician_workload_snapshot.csv`
 - `data/Recommendations/assignment_recommendations.csv`
 - `data/Recommendations/recommendation_summary.json`
-- `reports/dashboard/employee_ticket_dashboard.html`
-
 ## How To Run
 
 Run data cleaning:
@@ -607,12 +579,6 @@ Run the full sandbox API pipeline using all tickets:
 venv\Scripts\python.exe src\run_sandbox_pipeline.py --all-tickets
 ```
 
-Generate dashboard:
-
-```bash
-venv\Scripts\python.exe src/generate_dashboard.py
-```
-
 Run time estimation:
 
 ```bash
@@ -623,12 +589,6 @@ Run complexity scoring:
 
 ```bash
 venv\Scripts\python.exe src/complexity_scoring.py
-```
-
-Generate static HTML dashboard:
-
-```bash
-venv\Scripts\python.exe src/generate_dashboard.py
 ```
 
 Run interactive Streamlit dashboard:
