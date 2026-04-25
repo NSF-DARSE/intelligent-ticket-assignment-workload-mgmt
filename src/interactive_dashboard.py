@@ -68,6 +68,16 @@ def apply_theme() -> None:
         div[data-testid="stMetricLabel"] {{
             color: {BRAND_COLORS["slate"]};
         }}
+        div[data-testid="stPopover"] > button {{
+            width: 100%;
+            border-radius: 14px;
+            border: 1px solid rgba(44, 122, 123, 0.28);
+            background: linear-gradient(135deg, rgba(44, 122, 123, 0.12), rgba(200, 155, 60, 0.18));
+            color: {BRAND_COLORS["ink"]};
+            font-weight: 600;
+            min-height: 2.9rem;
+            box-shadow: 0 10px 22px rgba(34, 49, 63, 0.08);
+        }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -113,46 +123,41 @@ def load_table_with_fallback(table_name: str, csv_path: Path) -> pd.DataFrame:
         return pd.read_csv(csv_path)
 
 
-def filter_active_tickets(feature_df: pd.DataFrame) -> pd.DataFrame:
+def filter_active_tickets(feature_df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     active = feature_df[feature_df["is_active_ticket"] == True].copy()
-
-    st.sidebar.header("Filters")
-    st.sidebar.caption("Refine the live ticket view without changing the saved outputs.")
 
     technicians = sorted([x for x in active["primary_resource"].dropna().unique().tolist()])
     priorities = sorted([x for x in active["priority"].dropna().unique().tolist()])
     sla_classes = sorted([x for x in active["sla_priority_class"].dropna().unique().tolist()])
     complexity_classes = sorted([x for x in active["complexity_class"].dropna().unique().tolist()])
     issue_types = sorted([x for x in active["issue_type"].dropna().unique().tolist()])
-    queues = sorted([x for x in active["queue"].dropna().unique().tolist()])
+    filter_summary = []
 
-    selected_technicians = st.sidebar.multiselect("Technician", technicians)
-    selected_priorities = st.sidebar.multiselect("Priority", priorities)
-    selected_sla = st.sidebar.multiselect("SLA Class", sla_classes)
-    selected_complexity = st.sidebar.multiselect("Complexity", complexity_classes)
-    selected_issue_types = st.sidebar.multiselect("Issue Type", issue_types)
-    selected_queues = st.sidebar.multiselect("Queue", queues)
-    show_only_unassigned = st.sidebar.checkbox("Only unassigned tickets")
-    show_only_breach_risk = st.sidebar.checkbox("Only SLA breach-risk tickets")
+    with st.popover("Filter Tickets", use_container_width=True):
+        st.caption("Refine the live ticket view without changing saved outputs.")
+        selected_technicians = st.multiselect("Technician", technicians)
+        selected_priorities = st.multiselect("Priority", priorities)
+        selected_complexity = st.multiselect("Complexity", complexity_classes)
+        selected_issue_types = st.multiselect("Issue Type", issue_types)
+        selected_sla = st.multiselect("SLA Class", sla_classes)
 
     if selected_technicians:
         active = active[active["primary_resource"].isin(selected_technicians)]
+        filter_summary.append(f"{len(selected_technicians)} technician")
     if selected_priorities:
         active = active[active["priority"].isin(selected_priorities)]
-    if selected_sla:
-        active = active[active["sla_priority_class"].isin(selected_sla)]
+        filter_summary.append(f"{len(selected_priorities)} priority")
     if selected_complexity:
         active = active[active["complexity_class"].isin(selected_complexity)]
+        filter_summary.append(f"{len(selected_complexity)} complexity")
     if selected_issue_types:
         active = active[active["issue_type"].isin(selected_issue_types)]
-    if selected_queues:
-        active = active[active["queue"].isin(selected_queues)]
-    if show_only_unassigned:
-        active = active[active["is_unassigned"] == True]
-    if show_only_breach_risk:
-        active = active[active["sla_breach_risk"] == True]
+        filter_summary.append(f"{len(selected_issue_types)} issue type")
+    if selected_sla:
+        active = active[active["sla_priority_class"].isin(selected_sla)]
+        filter_summary.append(f"{len(selected_sla)} SLA class")
 
-    return active
+    return active, filter_summary
 
 
 def build_employee_summary(feature_df: pd.DataFrame, recommendations_df: pd.DataFrame) -> pd.DataFrame:
@@ -164,7 +169,6 @@ def build_employee_summary(feature_df: pd.DataFrame, recommendations_df: pd.Data
         completed.groupby("completed_by")
         .agg(
             completed_tickets=("ticket_id", "count"),
-            avg_resolution_hours=("resolution_hours", "mean"),
             avg_complexity_score=("complexity_score", "mean"),
             unique_issue_types=("issue_type", "nunique"),
         )
@@ -176,7 +180,6 @@ def build_employee_summary(feature_df: pd.DataFrame, recommendations_df: pd.Data
         active.groupby("primary_resource")
         .agg(
             open_tickets=("ticket_id", "count"),
-            open_estimated_hours=("predicted_resolution_hours_final", "sum"),
             high_complexity_open=("complexity_class", lambda s: int((s == "High").sum())),
             critical_open=("priority", lambda s: int((s == "Critical").sum())),
         )
@@ -197,7 +200,7 @@ def build_employee_summary(feature_df: pd.DataFrame, recommendations_df: pd.Data
     summary = completed_summary.merge(active_summary, on="technician", how="outer")
     summary = summary.merge(recommendation_summary, on="technician", how="outer").fillna(0)
 
-    for col in ["avg_resolution_hours", "avg_complexity_score", "open_estimated_hours", "avg_recommendation_score"]:
+    for col in ["avg_complexity_score", "avg_recommendation_score"]:
         if col in summary.columns:
             summary[col] = summary[col].round(2)
 
@@ -216,8 +219,8 @@ def build_attention_table(active_df: pd.DataFrame) -> pd.DataFrame:
     attention["attention_score"] = (
         severity_score * 2.0
         + attention["complexity_score"].fillna(0) * 1.3
-        + attention["predicted_resolution_hours_final"].fillna(0) / 24.0
-        + attention["ticket_age_hours"].fillna(0) / 48.0
+        + attention["is_unassigned"].fillna(False).astype(int) * 1.5
+        + attention["sla_breach_risk"].fillna(False).astype(int) * 1.2
     )
     attention = attention.sort_values("attention_score", ascending=False)
     return attention[
@@ -228,8 +231,6 @@ def build_attention_table(active_df: pd.DataFrame) -> pd.DataFrame:
             "priority",
             "sla_priority_class",
             "complexity_class",
-            "predicted_resolution_hours_final",
-            "ticket_age_hours",
             "attention_score",
         ]
     ].head(12)
@@ -303,17 +304,36 @@ def main() -> None:
         page_title="Autotask AI Dashboard",
         page_icon="📊",
         layout="wide",
-        initial_sidebar_state="expanded",
+        initial_sidebar_state="collapsed",
     )
 
     apply_theme()
 
     feature_df, complexity_df, recommendations_df, time_df, nlp_df = load_data()
-    active_filtered = filter_active_tickets(feature_df)
     if "ticket_status" not in recommendations_df.columns:
         status_map = feature_df[["ticket_id", "status"]].drop_duplicates()
         recommendations_df = recommendations_df.merge(status_map, on="ticket_id", how="left")
         recommendations_df = recommendations_df.rename(columns={"status": "ticket_status"})
+
+    hero_col, filter_col = st.columns([6.8, 1.4], vertical_alignment="top")
+    with hero_col:
+        st.markdown(
+            """
+            <div class="hero-panel">
+              <h1>Autotask AI Dashboard</h1>
+              <p>Interactive Phase 2 view for PostgreSQL-backed open tickets, technician recommendations, SLA pressure, complexity, and predicted effort.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with filter_col:
+        st.markdown("<div style='height: 0.55rem;'></div>", unsafe_allow_html=True)
+        active_filtered, filter_summary = filter_active_tickets(feature_df)
+
+    st.caption("Primary source: PostgreSQL analytics tables. CSV files are used only as a fallback if the database is unavailable.")
+    if filter_summary:
+        st.caption("Active filters: " + ", ".join(filter_summary))
+
     employee_summary = build_employee_summary(feature_df, recommendations_df)
     top_recommendations = recommendations_df[recommendations_df["recommendation_rank"] == 1].copy()
     filtered_top_recommendations = top_recommendations[
@@ -325,25 +345,11 @@ def main() -> None:
     ticket_recommendation_board = build_ticket_recommendation_board(filtered_recommendation_rows)
     attention_table = build_attention_table(active_filtered)
 
-    st.markdown(
-        """
-        <div class="hero-panel">
-          <h1>Autotask AI Dashboard</h1>
-          <p>Interactive Phase 2 view for PostgreSQL-backed open tickets, technician recommendations, SLA pressure, complexity, and predicted effort.</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    st.caption("Primary source: PostgreSQL analytics tables. CSV files are used only as a fallback if the database is unavailable.")
-
     insight_col1, insight_col2, insight_col3 = st.columns(3)
     with insight_col1:
-        busiest = (
-            active_filtered.groupby("primary_resource")["predicted_resolution_hours_final"].sum().sort_values(ascending=False)
-        )
+        busiest = active_filtered["primary_resource"].fillna("Unassigned").value_counts()
         busiest_text = busiest.index[0] if not busiest.empty else "N/A"
-        st.info(f"Highest predicted workload: `{busiest_text}`")
+        st.info(f"Most open tickets assigned to: `{busiest_text}`")
     with insight_col2:
         highest_sla = active_filtered["sla_priority_class"].fillna("Missing").value_counts()
         highest_sla_text = highest_sla.index[0] if not highest_sla.empty else "N/A"
@@ -376,8 +382,8 @@ def main() -> None:
         f"{tickets_with_recommendations:,}",
     )
 
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
-        ["Overview", "Employees", "Recommendations", "Ticket Assignment Board", "Time Estimation", "Ticket Explorer"]
+    tab1, tab2, tab3, tab4 = st.tabs(
+        ["Overview", "Employees", "Recommendations", "Ticket Assignment Board"]
     )
 
     with tab1:
@@ -442,20 +448,20 @@ def main() -> None:
                 active_filtered.groupby("primary_resource")
                 .agg(
                     active_tickets=("ticket_id", "count"),
-                    predicted_hours=("predicted_resolution_hours_final", "sum"),
+                    high_complexity_tickets=("complexity_class", lambda s: int((s == "High").sum())),
                 )
                 .reset_index()
-                .sort_values("predicted_hours", ascending=False)
+                .sort_values("active_tickets", ascending=False)
             )
             fig = px.scatter(
                 workload,
                 x="active_tickets",
-                y="predicted_hours",
-                size="predicted_hours",
+                y="high_complexity_tickets",
+                size="active_tickets",
                 color="primary_resource",
-                title="Technician Workload: Ticket Count vs Predicted Hours",
+                title="Technician Workload: Ticket Count vs High-Complexity Tickets",
             )
-            fig.update_layout(xaxis_title="Open Tickets", yaxis_title="Predicted Open Hours")
+            fig.update_layout(xaxis_title="Open Tickets", yaxis_title="High-Complexity Tickets")
             st.plotly_chart(fig, use_container_width=True)
 
         with col6:
@@ -475,91 +481,149 @@ def main() -> None:
 
         st.subheader("Tickets Needing the Most Attention")
         attention_display = attention_table.copy()
-        for column in ["predicted_resolution_hours_final", "ticket_age_hours", "attention_score"]:
+        for column in ["attention_score"]:
             attention_display[column] = safe_round(attention_display[column])
         dataframe_download("Download Attention Table", attention_display, "attention_tickets.csv")
         st.dataframe(attention_display, use_container_width=True, hide_index=True)
 
     with tab2:
-        st.subheader("Technician Summary")
-        dataframe_download("Download Technician Summary", employee_summary, "technician_summary.csv")
-        st.dataframe(employee_summary, use_container_width=True, hide_index=True)
+        st.subheader("Employee Profiles")
+        st.caption("Pick an employee to open their profile, ticket summary, completed tickets, and active tickets.")
 
-        col1, col2 = st.columns(2)
-        with col1:
-            fig = px.bar(
-                employee_summary,
-                x="technician",
-                y="completed_tickets",
-                color="avg_complexity_score",
-                title="Completed Tickets by Technician",
-            )
-            fig.update_layout(xaxis_title="", yaxis_title="Completed Tickets")
-            st.plotly_chart(fig, use_container_width=True)
+        employee_profiles = employee_summary.copy()
+        employee_profiles["profile_label"] = employee_profiles["technician"].astype(str)
+        employee_names = employee_profiles["profile_label"].tolist()
 
-        with col2:
-            fig = px.bar(
-                employee_summary,
-                x="technician",
-                y="open_estimated_hours",
-                color="high_complexity_open",
-                title="Predicted Open Hours by Technician",
-            )
-            fig.update_layout(xaxis_title="", yaxis_title="Predicted Open Hours")
-            st.plotly_chart(fig, use_container_width=True)
+        if "selected_employee_profile" not in st.session_state:
+            st.session_state["selected_employee_profile"] = employee_names[0] if employee_names else None
 
-        st.subheader("Employee Drill-Down")
-        selected_employee = st.selectbox(
-            "Choose a technician",
-            options=["All"] + employee_summary["technician"].astype(str).tolist(),
-        )
-
-        employee_active = active_filtered.copy()
-        employee_completed = feature_df[feature_df["resolution_hours"].notna()].copy()
-        if selected_employee != "All":
-            employee_active = employee_active[employee_active["primary_resource"] == selected_employee]
-            employee_completed = employee_completed[employee_completed["completed_by"] == selected_employee]
-
-        detail_left, detail_right = st.columns(2)
-        with detail_left:
-            top_issue_types = (
-                employee_completed["issue_type"].fillna("Missing").value_counts().head(8).reset_index()
-            )
-            top_issue_types.columns = ["Issue Type", "Tickets"]
-            fig = px.bar(
-                top_issue_types,
-                x="Issue Type",
-                y="Tickets",
-                color="Tickets",
-                title="Top Solved Issue Types",
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-        with detail_right:
-            if not employee_active.empty:
-                fig = px.histogram(
-                    employee_active,
-                    x="predicted_resolution_hours_final",
-                    color="complexity_class",
-                    nbins=18,
-                    title="Open Ticket Predicted Hours",
+        if employee_names:
+            picker_col, summary_col = st.columns([2.1, 1.2], vertical_alignment="center")
+            with picker_col:
+                selected_employee = st.selectbox(
+                    "Employee",
+                    options=employee_names,
+                    index=employee_names.index(st.session_state["selected_employee_profile"])
+                    if st.session_state["selected_employee_profile"] in employee_names
+                    else 0,
+                    label_visibility="collapsed",
                 )
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("No active tickets match the current employee and filter selection.")
+                st.session_state["selected_employee_profile"] = selected_employee
+            with summary_col:
+                dataframe_download("Download Technician Summary", employee_summary, "technician_summary.csv")
 
-        employee_cols = [
-            "ticket_id",
-            "title",
-            "priority",
-            "sla_priority_class",
-            "complexity_class",
-            "predicted_resolution_hours_final",
-            "top_similarity_score",
-        ]
-        available_employee_cols = [col for col in employee_cols if col in employee_active.columns]
-        dataframe_download("Download Employee Drill-Down", employee_active[available_employee_cols], "employee_drilldown.csv")
-        st.dataframe(employee_active[available_employee_cols], use_container_width=True, hide_index=True)
+            st.markdown("### Team Members")
+            profile_columns = st.columns(3)
+            for idx, employee in enumerate(employee_names):
+                employee_row = employee_profiles[employee_profiles["profile_label"] == employee].iloc[0]
+                with profile_columns[idx % 3]:
+                    if st.button(
+                        f"{employee}",
+                        key=f"profile_{employee}",
+                        use_container_width=True,
+                    ):
+                        st.session_state["selected_employee_profile"] = employee
+                    st.caption(
+                        f"Completed: {int(employee_row['completed_tickets'])} | "
+                        f"Open: {int(employee_row['open_tickets'])} | "
+                        f"Top recs: {int(employee_row['top_recommendations'])}"
+                    )
+
+            selected_employee = st.session_state["selected_employee_profile"]
+            selected_profile = employee_profiles[employee_profiles["profile_label"] == selected_employee].iloc[0]
+
+            st.markdown(f"## {selected_employee}")
+            profile_metric_1, profile_metric_2, profile_metric_3 = st.columns(3)
+            profile_metric_1.metric("Completed Tickets", f"{int(selected_profile['completed_tickets']):,}")
+            profile_metric_2.metric("Open Tickets", f"{int(selected_profile['open_tickets']):,}")
+            profile_metric_3.metric("Top Recommendations", f"{int(selected_profile['top_recommendations']):,}")
+
+            profile_left, profile_right = st.columns([1.4, 1.1])
+            with profile_left:
+                st.markdown("### Employee Profile")
+                st.write(
+                    {
+                        "Employee Name": selected_employee,
+                        "Email": "",
+                        "Contact Number": "",
+                        "Department": "",
+                        "Location": "",
+                    }
+                )
+
+            employee_active = active_filtered[active_filtered["primary_resource"] == selected_employee].copy()
+            employee_completed = feature_df[
+                (feature_df["resolution_hours"].notna()) & (feature_df["completed_by"] == selected_employee)
+            ].copy()
+
+            with profile_right:
+                top_issue_types = (
+                    employee_completed["issue_type"].fillna("Missing").value_counts().head(8).reset_index()
+                )
+                top_issue_types.columns = ["Issue Type", "Tickets"]
+                if not top_issue_types.empty:
+                    fig = px.bar(
+                        top_issue_types,
+                        x="Issue Type",
+                        y="Tickets",
+                        color="Tickets",
+                        title="Top Ticket Types Worked",
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No completed ticket history is available for this employee yet.")
+
+            st.markdown("### Ticket Summary")
+            summary_col1, summary_col2 = st.columns(2)
+            summary_col1.metric("Tickets Worked", f"{len(employee_completed):,}")
+            summary_col2.metric("Tickets In Progress", f"{len(employee_active):,}")
+
+            completed_cols = [
+                "ticket_id",
+                "title",
+                "priority",
+                "issue_type",
+                "sla_priority_class",
+                "complexity_class",
+                "account",
+            ]
+            active_cols = [
+                "ticket_id",
+                "title",
+                "priority",
+                "issue_type",
+                "sla_priority_class",
+                "complexity_class",
+                "account",
+            ]
+
+            st.markdown("### Tickets Worked")
+            available_completed_cols = [col for col in completed_cols if col in employee_completed.columns]
+            if available_completed_cols and not employee_completed.empty:
+                completed_display = employee_completed[available_completed_cols].copy()
+                dataframe_download(
+                    "Download Completed Tickets",
+                    completed_display,
+                    f"{selected_employee}_completed_tickets.csv",
+                )
+                st.dataframe(completed_display, use_container_width=True, hide_index=True)
+            else:
+                st.info("No completed tickets found for this employee.")
+
+            st.markdown("### Tickets Currently Working On")
+            available_active_cols = [col for col in active_cols if col in employee_active.columns]
+            if available_active_cols and not employee_active.empty:
+                active_display = employee_active[available_active_cols].copy()
+                dataframe_download(
+                    "Download Active Tickets",
+                    active_display,
+                    f"{selected_employee}_active_tickets.csv",
+                )
+                st.dataframe(active_display, use_container_width=True, hide_index=True)
+            else:
+                st.info("This employee has no active tickets in the current filtered view.")
+        else:
+            st.info("No employee profiles are available in the current dataset.")
 
     with tab3:
         st.subheader("Recommendation Summary")
@@ -620,7 +684,6 @@ def main() -> None:
             "bm25_text_expertise_score",
             "queue_group_skill_score",
             "account_familiarity_score",
-            "workload_hours_score",
             "priority_balance_score",
             "sla_pressure_score",
             "sla_urgency_fit_score",
@@ -730,106 +793,6 @@ def main() -> None:
             ascending=[True, True],
         )
         st.dataframe(board_display, use_container_width=True, hide_index=True)
-
-    with tab5:
-        st.subheader("Time Estimation View")
-        merged_time = active_filtered.merge(
-            time_df[
-                [
-                    "ticket_id",
-                    "predicted_resolution_hours_baseline",
-                    "predicted_resolution_hours_model",
-                    "predicted_resolution_hours_final",
-                    "nlp_estimated_resolution_hours",
-                ]
-            ],
-            on="ticket_id",
-            how="left",
-            suffixes=("", "_time"),
-        )
-        compare_cols = [
-            "predicted_resolution_hours_baseline",
-            "predicted_resolution_hours_model",
-            "predicted_resolution_hours_final",
-            "nlp_estimated_resolution_hours",
-        ]
-
-        col1, col2 = st.columns(2)
-        with col1:
-            fig = px.histogram(
-                merged_time,
-                x="predicted_resolution_hours_final",
-                color="complexity_class",
-                nbins=20,
-                title="Predicted Resolution Hours Distribution",
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-        with col2:
-            compare = merged_time[compare_cols].mean(numeric_only=True).reset_index()
-            compare.columns = ["Estimator", "Average Hours"]
-            compare["Average Hours"] = safe_round(compare["Average Hours"])
-            fig = px.bar(
-                compare,
-                x="Estimator",
-                y="Average Hours",
-                color="Estimator",
-                title="Average Hours by Estimation Method",
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-        st.dataframe(
-            merged_time[
-                [
-                    "ticket_id",
-                    "title",
-                    "priority",
-                    "sla_priority_class",
-                    "complexity_class",
-                    "predicted_resolution_hours_baseline",
-                    "predicted_resolution_hours_model",
-                    "predicted_resolution_hours_final",
-                    "nlp_estimated_resolution_hours",
-                ]
-            ],
-            use_container_width=True,
-            hide_index=True,
-        )
-        dataframe_download("Download Time Estimates", merged_time, "time_estimation_view.csv")
-
-    with tab6:
-        st.subheader("Interactive Ticket Explorer")
-        explorer_cols = [
-            "ticket_id",
-            "title",
-            "account",
-            "primary_resource",
-            "priority",
-            "sla_priority_class",
-            "queue",
-            "issue_type",
-            "complexity_class",
-            "complexity_score",
-            "complexity_reason",
-            "predicted_resolution_hours_final",
-            "ticket_age_hours",
-            "top_similarity_score",
-            "estimated_resolution_hours_nlp",
-        ]
-        available_cols = [col for col in explorer_cols if col in active_filtered.columns]
-        explorer_df = active_filtered[available_cols].copy()
-        for column in [
-            "complexity_score",
-            "predicted_resolution_hours_final",
-            "ticket_age_hours",
-            "top_similarity_score",
-            "estimated_resolution_hours_nlp",
-        ]:
-            if column in explorer_df.columns:
-                explorer_df[column] = safe_round(explorer_df[column])
-        dataframe_download("Download Ticket Explorer", explorer_df, "ticket_explorer.csv")
-        st.dataframe(explorer_df, use_container_width=True, hide_index=True)
-
 
 if __name__ == "__main__":
     main()

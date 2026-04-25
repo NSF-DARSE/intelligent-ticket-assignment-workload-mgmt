@@ -62,8 +62,6 @@ Project_Autotask
 |   |-- Complexity
 |   `-- Recommendations
 |-- notebooks
-|-- reports
-|   `-- dashboard
 |-- sql
 |   `-- create_autotask_table.sql
 |-- src
