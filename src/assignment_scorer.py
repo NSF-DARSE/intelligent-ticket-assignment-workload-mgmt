@@ -10,22 +10,25 @@ import pandas as pd
 FEATURE_DATA_PATH = Path("data/Feature_Engineered/autotask_feature_engineered.csv")
 COMPLEXITY_PATH = Path("data/Complexity/autotask_complexity_scored.csv")
 NLP_MATCHES_PATH = Path("data/NLP/ticket_similarity_matches.csv")
+EMPLOYEE_SKILLS_PROFILE_PATH = Path("data/Feature_Engineered/employee_skills_profile.csv")
+EMPLOYEE_SKILLS_NORMALIZED_PATH = Path("data/Feature_Engineered/employee_skills_normalized.csv")
 RECOMMENDATION_DIR = Path("data/Recommendations")
 WORKLOAD_PATH = RECOMMENDATION_DIR / "technician_workload_snapshot.csv"
 RECOMMENDATIONS_PATH = RECOMMENDATION_DIR / "assignment_recommendations.csv"
 SUMMARY_PATH = RECOMMENDATION_DIR / "recommendation_summary.json"
 
 TECHNICIAN_WEIGHTS = {
-    "issue_type_skill": 0.25,
-    "bm25_text_expertise": 0.15,
-    "queue_group_skill": 0.10,
-    "account_familiarity": 0.05,
+    "issue_type_skill": 0.20,
+    "skill_experience": 0.18,
+    "bm25_text_expertise": 0.12,
+    "queue_group_skill": 0.08,
+    "account_familiarity": 0.04,
     "workload_hours": 0.12,
     "workload_count": 0.12,
-    "priority_balance": 0.10,
+    "priority_balance": 0.08,
     "resolution_efficiency": 0.05,
-    "sla_pressure": 0.10,
-    "sla_urgency_fit": 0.10,
+    "sla_pressure": 0.08,
+    "sla_urgency_fit": 0.08,
     "complexity_fit": 0.10,
 }
 
@@ -33,6 +36,31 @@ SOFT_TICKET_CAP = 20
 CAPACITY_HOUR_CAP = 40.0
 NEW_TECH_COMPLETED_THRESHOLD = 15
 NEW_TECH_TOP1_CAP = 5
+TECHNICIAN_KEY_ALIASES = {
+    "ajohson": "ajohnson",
+}
+SKILL_DOMAIN_KEYWORDS = {
+    "Service Management": ["incident", "problem", "service", "change", "release", "cab", "knowledge", "triage"],
+    "Applications": ["software", "application", "browser", "outlook", "teams", "zoom", "web", "odbc", "email"],
+    "Cloud & Infrastructure": ["cloud", "server", "backup", "recovery", "virtualization", "azure", "vm", "datto"],
+    "Network & Security": ["network", "vpn", "firewall", "security", "access", "authentication", "siem", "lan", "wan"],
+    "Endpoint & Hardware": ["hardware", "printer", "laptop", "desktop", "device", "cpu", "monitor", "peripheral", "windows"],
+    "Business & Reporting": ["excel", "powerpoint", "forms", "report", "analysis"],
+}
+TICKET_SKILL_RULES = [
+    (["vpn", "remote access", "anyconnect", "split tunnel"], ["VPN Client Software Support", "Remote Access Tools", "Network Fundamentals"]),
+    (["printer", "print", "scan", "scanner", "mfp"], ["Printer Repair & Maintenance", "Printer Installation (Driver/Queue)", "MFP Scan-to-Email/Folder Setup"]),
+    (["email", "outlook", "mailbox", "exchange"], ["Outlook Client (Advanced)", "Email Client Setup (Profiles)", "Microsoft Office (Outlook)"]),
+    (["teams", "zoom", "webex", "meeting", "voip", "phone"], ["Teams Client Troubleshooting (User)", "UC Collaboration Tools", "VoIP Troubleshooting"]),
+    (["server", "vm", "hyper-v", "esxi"], ["Server Administration", "Virtualization", "Windows OS Support"]),
+    (["backup", "restore", "recovery", "bcdr", "veeam", "datto"], ["Disaster Recovery Planning", "Datto BCDR Restore Operations", "Cloud Security & Compliance"]),
+    (["browser", "cookie", "pop-up", "web app"], ["Browser Support (Chrome/Edge/Firefox)", "Web App Troubleshooting", "Line-of-Business App Support"]),
+    (["mfa", "access", "login", "signin", "password", "permission", "identity"], ["Access Management", "MFA Enrollment Support", "Azure AD / Entra ID Admin"]),
+    (["network", "connectivity", "firewall", "switch", "port", "dns", "dhcp", "lan", "wan"], ["Network Fundamentals", "LAN/WAN Administration", "Firewalls & Edge Security"]),
+    (["onboarding", "new user", "enrollment", "device setup"], ["New User Onboarding Setup", "Mobile Device Enrollment (MDM)", "Software Installation & Configuration"]),
+    (["change", "deployment", "rollout", "release"], ["Change Management", "Release & Deployment", "CAB Preparation & Change Evidence"]),
+    (["automation", "script", "api", "workflow", "integration"], ["Scripting & Automation", "Automation/AI", "AI Integrations & Automation"]),
+]
 
 
 def default_workload_record() -> dict:
@@ -51,6 +79,15 @@ def default_workload_record() -> dict:
     }
 
 
+def canonicalize_technician_key(value: str) -> str:
+    if pd.isna(value):
+        return np.nan
+    key = str(value or "").strip().lower()
+    if key in {"", "nan", "none"}:
+        return np.nan
+    return TECHNICIAN_KEY_ALIASES.get(key, key)
+
+
 def load_feature_data() -> pd.DataFrame:
     return pd.read_csv(FEATURE_DATA_PATH)
 
@@ -61,6 +98,31 @@ def load_complexity_data() -> pd.DataFrame:
 
 def load_nlp_matches() -> pd.DataFrame:
     return pd.read_csv(NLP_MATCHES_PATH) if NLP_MATCHES_PATH.exists() else pd.DataFrame()
+
+
+def load_employee_skills() -> tuple[dict[str, dict], dict[str, dict]]:
+    if not EMPLOYEE_SKILLS_NORMALIZED_PATH.exists():
+        return {}, {}
+
+    normalized_df = pd.read_csv(EMPLOYEE_SKILLS_NORMALIZED_PATH)
+    profile_df = pd.read_csv(EMPLOYEE_SKILLS_PROFILE_PATH) if EMPLOYEE_SKILLS_PROFILE_PATH.exists() else pd.DataFrame()
+
+    normalized_df["technician_key"] = normalized_df["technician_key"].map(canonicalize_technician_key)
+    skill_lookup: dict[str, dict] = {}
+    for technician, group in normalized_df.groupby("technician_key"):
+        skill_lookup[technician] = {
+            "employee_name": group["employee_name"].iloc[0],
+            "role": group["role"].iloc[0],
+            "primary_skill_domain": group["primary_skill_domain"].iloc[0],
+            "skills": set(group["skill_name"].dropna().astype(str)),
+        }
+
+    profile_lookup: dict[str, dict] = {}
+    if not profile_df.empty:
+        profile_df["technician_key"] = profile_df["technician_key"].map(canonicalize_technician_key)
+        profile_lookup = profile_df.set_index("technician_key").to_dict(orient="index")
+
+    return skill_lookup, profile_lookup
 
 
 def safe_ratio(numerator: float, denominator: float) -> float:
@@ -83,6 +145,7 @@ def normalize_inverse(series: pd.Series) -> pd.Series:
 
 def build_workload_snapshot(df: pd.DataFrame) -> pd.DataFrame:
     active = df[df["is_active_ticket"]].copy()
+    active["primary_resource"] = active["primary_resource"].map(canonicalize_technician_key)
     active = active[active["primary_resource"].notna()].copy()
 
     if active.empty:
@@ -179,6 +242,7 @@ def apply_projected_assignment(workload_lookup: dict[str, dict], technician: str
 
 def build_technician_history(df: pd.DataFrame) -> pd.DataFrame:
     completed = df[df["resolution_hours"].notna() & df["completed_by"].notna()].copy()
+    completed["completed_by"] = completed["completed_by"].map(canonicalize_technician_key)
     if completed.empty:
         return pd.DataFrame()
 
@@ -199,9 +263,9 @@ def build_technician_history(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def get_technician_pool(df: pd.DataFrame) -> list[str]:
-    completed_techs = set(df["completed_by"].dropna().astype(str).unique())
-    active_techs = set(df["primary_resource"].dropna().astype(str).unique())
-    return sorted(completed_techs | active_techs)
+    completed_techs = {canonicalize_technician_key(value) for value in df["completed_by"].dropna().unique()}
+    active_techs = {canonicalize_technician_key(value) for value in df["primary_resource"].dropna().unique()}
+    return sorted({tech for tech in (completed_techs | active_techs) if pd.notna(tech)})
 
 
 def build_text_expertise_lookup(matches_df: pd.DataFrame) -> dict[tuple[str, str], dict]:
@@ -211,6 +275,7 @@ def build_text_expertise_lookup(matches_df: pd.DataFrame) -> dict[tuple[str, str
     score_column = "hybrid_text_score" if "hybrid_text_score" in matches_df.columns else "similarity_score"
     matches = matches_df.copy()
     matches[score_column] = pd.to_numeric(matches[score_column], errors="coerce").fillna(0.0)
+    matches["matched_completed_by"] = matches["matched_completed_by"].map(canonicalize_technician_key)
     matches = matches[matches["matched_completed_by"].notna()].copy()
 
     if matches.empty:
@@ -225,6 +290,24 @@ def build_text_expertise_lookup(matches_df: pd.DataFrame) -> dict[tuple[str, str
         )
         .reset_index()
     )
+
+    if "embedding_similarity_score" in matches.columns:
+        embedding_grouped = (
+            matches.groupby(["open_ticket_id", "matched_completed_by"])
+            .agg(
+                embedding_text_expertise_score=("embedding_similarity_score", "mean"),
+                best_embedding_match_score=("embedding_similarity_score", "max"),
+            )
+            .reset_index()
+        )
+        grouped = grouped.merge(
+            embedding_grouped,
+            on=["open_ticket_id", "matched_completed_by"],
+            how="left",
+        )
+    else:
+        grouped["embedding_text_expertise_score"] = grouped["bm25_text_expertise_score"]
+        grouped["best_embedding_match_score"] = grouped["best_text_match_score"]
 
     if "match_rank" in matches.columns:
         best_rank = (
@@ -241,6 +324,8 @@ def build_text_expertise_lookup(matches_df: pd.DataFrame) -> dict[tuple[str, str
         lookup[(str(row["open_ticket_id"]), str(row["matched_completed_by"]))] = {
             "bm25_text_expertise_score": round(float(row["bm25_text_expertise_score"]), 4),
             "best_text_match_score": round(float(row["best_text_match_score"]), 4),
+            "embedding_text_expertise_score": round(float(row["embedding_text_expertise_score"]), 4),
+            "best_embedding_match_score": round(float(row["best_embedding_match_score"]), 4),
             "text_match_count": int(row["text_match_count"]),
             "best_text_match_rank": int(row["best_text_match_rank"])
             if pd.notna(row["best_text_match_rank"])
@@ -248,6 +333,104 @@ def build_text_expertise_lookup(matches_df: pd.DataFrame) -> dict[tuple[str, str
         }
 
     return lookup
+
+
+def infer_ticket_domains(ticket: pd.Series) -> set[str]:
+    text = " ".join(
+        [
+            str(ticket.get("title", "") or ""),
+            str(ticket.get("description", "") or ""),
+            str(ticket.get("ticket_text", "") or ""),
+            str(ticket.get("issue_type", "") or ""),
+        ]
+    ).lower()
+    domains = set()
+    for domain, keywords in SKILL_DOMAIN_KEYWORDS.items():
+        if any(keyword in text for keyword in keywords):
+            domains.add(domain)
+
+    issue_type = str(ticket.get("issue_type", "") or "").lower()
+    if issue_type.startswith("it"):
+        domains.add("Endpoint & Hardware")
+    if issue_type.startswith("sw"):
+        domains.add("Applications")
+    if "change" in issue_type or str(ticket.get("issue_type_group", "") or "").lower() == "triage":
+        domains.add("Service Management")
+
+    return domains or {"Service Management"}
+
+
+def infer_required_skills(ticket: pd.Series) -> set[str]:
+    text = " ".join(
+        [
+            str(ticket.get("title", "") or ""),
+            str(ticket.get("description", "") or ""),
+            str(ticket.get("ticket_text", "") or ""),
+            str(ticket.get("issue_type", "") or ""),
+        ]
+    ).lower()
+    required_skills: set[str] = set()
+
+    for keywords, skills in TICKET_SKILL_RULES:
+        if any(keyword in text for keyword in keywords):
+            required_skills.update(skills)
+
+    issue_type = str(ticket.get("issue_type", "") or "").lower()
+    if "hardware" in issue_type:
+        required_skills.update(["Troubleshooting", "Desktop/Laptop Support", "Windows OS Support"])
+    if "applications" in issue_type:
+        required_skills.update(["Line-of-Business App Support", "Software Installation & Configuration"])
+    if "support" in issue_type:
+        required_skills.update(["Incident Management", "Customer Service"])
+    if "change" in issue_type:
+        required_skills.update(["Change Management", "Release & Deployment"])
+    if ticket.get("ticket_text_has_server"):
+        required_skills.update(["Server Administration", "Network Monitoring & Diagnostics"])
+    if ticket.get("ticket_text_has_backup"):
+        required_skills.update(["Disaster Recovery Planning", "Datto BCDR Restore Operations"])
+    if ticket.get("ticket_text_has_vpn"):
+        required_skills.update(["VPN Client Software Support", "Remote Access Tools"])
+    if ticket.get("ticket_text_has_email"):
+        required_skills.update(["Outlook Client (Advanced)", "Email Client Setup (Profiles)"])
+    if ticket.get("ticket_text_has_printer"):
+        required_skills.update(["Printer Repair & Maintenance", "Printer Installation (Driver/Queue)"])
+    if ticket.get("ticket_text_has_access_issue"):
+        required_skills.update(["Access Management", "MFA Enrollment Support"])
+
+    return required_skills
+
+
+def compute_skill_alignment(ticket: pd.Series, technician: str, skill_lookup: dict[str, dict]) -> dict:
+    technician_skills = skill_lookup.get(
+        technician,
+        {"skills": set(), "primary_skill_domain": "", "employee_name": technician, "role": ""},
+    )
+    required_skills = infer_required_skills(ticket)
+    required_domains = infer_ticket_domains(ticket)
+    technician_skill_set = set(technician_skills.get("skills", set()))
+    matched_skills = sorted(required_skills & technician_skill_set)
+    skill_coverage = safe_ratio(len(matched_skills), max(len(required_skills), 1))
+    domain_match = 1.0 if technician_skills.get("primary_skill_domain") in required_domains else 0.0
+
+    score = min(1.0, (skill_coverage * 0.75) + (domain_match * 0.25))
+    if len(matched_skills) >= 2:
+        score = min(1.0, score + 0.08)
+    elif len(matched_skills) == 1:
+        score = min(1.0, score + 0.04)
+
+    return {
+        "skill_alignment_score": round(float(score), 4),
+        "skill_coverage_score": round(float(skill_coverage), 4),
+        "skill_domain_match_score": round(float(domain_match), 4),
+        "required_skill_count": int(len(required_skills)),
+        "matched_skill_count": int(len(matched_skills)),
+        "matched_skills": matched_skills,
+        "required_skills": sorted(required_skills),
+        "required_domains": sorted(required_domains),
+        "employee_name": technician_skills.get("employee_name", technician),
+        "skill_role": technician_skills.get("role", ""),
+        "skill_primary_domain": technician_skills.get("primary_skill_domain", ""),
+    }
 
 
 def compute_skill_score(ticket: pd.Series, technician: str, completed: pd.DataFrame) -> dict:
@@ -445,6 +628,10 @@ def distribution_penalty(tech_workload: dict, mean_open_count: float, mean_open_
 
 
 def recommend_assignments(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    df = df.copy()
+    df["primary_resource"] = df["primary_resource"].map(canonicalize_technician_key)
+    df["completed_by"] = df["completed_by"].map(canonicalize_technician_key)
+
     complexity_df = load_complexity_data()
     if not complexity_df.empty:
         df = df.merge(
@@ -457,6 +644,8 @@ def recommend_assignments(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame,
     completed = df[df["resolution_hours"].notna() & df["completed_by"].notna()].copy()
     open_tickets = df[df["is_active_ticket"]].copy()
     text_expertise_lookup = build_text_expertise_lookup(load_nlp_matches())
+    skill_lookup, profile_lookup = load_employee_skills()
+    technician_pool = sorted(set(technician_pool) | set(skill_lookup.keys()))
 
     workload = build_workload_snapshot(df)
     history = build_technician_history(df)
@@ -489,11 +678,14 @@ def recommend_assignments(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame,
             tech_workload = workload_lookup.get(technician, default_workload_record())
 
             skill = compute_skill_score(ticket, technician, completed)
+            skill_alignment = compute_skill_alignment(ticket, technician, skill_lookup)
             text_expertise = text_expertise_lookup.get(
                 (str(ticket["ticket_id"]), technician),
                 {
                     "bm25_text_expertise_score": 0.0,
                     "best_text_match_score": 0.0,
+                    "embedding_text_expertise_score": 0.0,
+                    "best_embedding_match_score": 0.0,
                     "text_match_count": 0,
                     "best_text_match_rank": np.nan,
                 },
@@ -520,9 +712,14 @@ def recommend_assignments(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame,
                 ticket,
                 new_tech_top1_counts.get(technician, 0),
             )
+            skill_experience_score = round(
+                min(1.0, (skill_alignment["skill_alignment_score"] * 0.65) + (skill["issue_type_skill"] * 0.35)),
+                4,
+            )
 
             total_score = (
                 TECHNICIAN_WEIGHTS["issue_type_skill"] * skill["issue_type_skill"]
+                + TECHNICIAN_WEIGHTS["skill_experience"] * skill_experience_score
                 + TECHNICIAN_WEIGHTS["bm25_text_expertise"] * text_expertise["bm25_text_expertise_score"]
                 + TECHNICIAN_WEIGHTS["queue_group_skill"] * skill["queue_group_skill"]
                 + TECHNICIAN_WEIGHTS["account_familiarity"] * skill["account_familiarity"]
@@ -555,9 +752,15 @@ def recommend_assignments(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame,
                 rationale.append(f"complexity {ticket['complexity_class']}")
             if skill["issue_type_match_count"] > 0:
                 rationale.append(f"{skill['issue_type_match_count']} similar issue-type tickets")
+            if skill_alignment["matched_skill_count"] > 0:
+                rationale.append(
+                    f"{skill_alignment['matched_skill_count']} matching employee skills: {', '.join(skill_alignment['matched_skills'][:3])}"
+                )
+            elif skill_alignment["required_skill_count"] > 0:
+                rationale.append(f"ticket mapped to {skill_alignment['required_skill_count']} required skills")
             if text_expertise["text_match_count"] > 0:
                 rationale.append(
-                    f"{text_expertise['text_match_count']} BM25/TF-IDF text matches"
+                    f"{text_expertise['text_match_count']} BM25/TF-IDF/MiniLM text matches"
                 )
             if skill["account_match_count"] > 0:
                 rationale.append(f"familiar with account {ticket['account']}")
@@ -599,10 +802,27 @@ def recommend_assignments(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame,
                     "ticket_complexity_reason": ticket.get("complexity_reason"),
                     "current_assignee": ticket.get("primary_resource"),
                     "recommended_technician": technician,
+                    "recommended_employee_name": profile_lookup.get(technician, {}).get(
+                        "employee_name",
+                        skill_alignment["employee_name"],
+                    ),
                     "recommendation_score": round(float(total_score), 4),
                     "issue_type_skill_score": skill["issue_type_skill"],
+                    "skill_experience_score": skill_experience_score,
+                    "skill_alignment_score": skill_alignment["skill_alignment_score"],
+                    "skill_coverage_score": skill_alignment["skill_coverage_score"],
+                    "skill_domain_match_score": skill_alignment["skill_domain_match_score"],
+                    "matched_skill_count": skill_alignment["matched_skill_count"],
+                    "required_skill_count": skill_alignment["required_skill_count"],
+                    "matched_skills": "; ".join(skill_alignment["matched_skills"]),
+                    "required_skills": "; ".join(skill_alignment["required_skills"]),
+                    "required_skill_domains": "; ".join(skill_alignment["required_domains"]),
+                    "employee_skill_role": skill_alignment["skill_role"],
+                    "employee_primary_skill_domain": skill_alignment["skill_primary_domain"],
                     "bm25_text_expertise_score": text_expertise["bm25_text_expertise_score"],
                     "best_text_match_score": text_expertise["best_text_match_score"],
+                    "embedding_text_expertise_score": text_expertise["embedding_text_expertise_score"],
+                    "best_embedding_match_score": text_expertise["best_embedding_match_score"],
                     "text_match_count": text_expertise["text_match_count"],
                     "best_text_match_rank": text_expertise["best_text_match_rank"],
                     "queue_group_skill_score": skill["queue_group_skill"],
@@ -648,7 +868,9 @@ def recommend_assignments(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame,
         "technician_pool_size": int(len(technician_pool)),
         "recommendation_rows": int(len(recommendations)),
         "tickets_with_recommendations": int(recommendations["ticket_id"].nunique()) if not recommendations.empty else 0,
+        "uses_employee_skill_matching": True,
         "uses_bm25_text_expertise": True,
+        "uses_embedding_text_expertise": True,
         "sla_priority_distribution_open": open_tickets["sla_priority_class"].value_counts().to_dict(),
         "complexity_distribution_open": open_tickets["complexity_class"].value_counts().to_dict()
         if "complexity_class" in open_tickets.columns
@@ -658,19 +880,39 @@ def recommend_assignments(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame,
     return workload, recommendations, summary
 
 
+def write_dataframe_with_fallback(df: pd.DataFrame, path: Path) -> Path:
+    try:
+        df.to_csv(path, index=False)
+        return path
+    except PermissionError:
+        fallback_path = path.with_name(f"{path.stem}_latest{path.suffix}")
+        df.to_csv(fallback_path, index=False)
+        return fallback_path
+
+
+def write_json_with_fallback(payload: dict, path: Path) -> Path:
+    try:
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return path
+    except PermissionError:
+        fallback_path = path.with_name(f"{path.stem}_latest{path.suffix}")
+        fallback_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return fallback_path
+
+
 def main() -> None:
     RECOMMENDATION_DIR.mkdir(parents=True, exist_ok=True)
 
     df = load_feature_data()
     workload, recommendations, summary = recommend_assignments(df)
 
-    workload.to_csv(WORKLOAD_PATH, index=False)
-    recommendations.to_csv(RECOMMENDATIONS_PATH, index=False)
-    SUMMARY_PATH.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    workload_output_path = write_dataframe_with_fallback(workload, WORKLOAD_PATH)
+    recommendations_output_path = write_dataframe_with_fallback(recommendations, RECOMMENDATIONS_PATH)
+    summary_output_path = write_json_with_fallback(summary, SUMMARY_PATH)
 
-    print(f"Workload snapshot saved to: {WORKLOAD_PATH}")
-    print(f"Recommendations saved to: {RECOMMENDATIONS_PATH}")
-    print(f"Summary saved to: {SUMMARY_PATH}")
+    print(f"Workload snapshot saved to: {workload_output_path}")
+    print(f"Recommendations saved to: {recommendations_output_path}")
+    print(f"Summary saved to: {summary_output_path}")
     print(f"Open tickets scored: {summary['open_ticket_count']}")
     print(f"Recommendation rows: {summary['recommendation_rows']}")
 

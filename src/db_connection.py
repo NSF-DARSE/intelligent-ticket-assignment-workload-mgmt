@@ -1,44 +1,41 @@
-import psycopg2
+from __future__ import annotations
+
+from pathlib import Path
+
+import pandas as pd
+from sqlalchemy import create_engine, text
+
+from load_outputs_to_postgres import get_db_url
 
 
-def main():
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def main() -> None:
+    engine = create_engine(get_db_url())
+
     try:
-        conn = psycopg2.connect(
-            host="localhost",
-            port="5432",
-            database="Intelligent Ticket Assignment & Workload Management",
-            user="postgres",
-            password="2014"
-        )
+        with engine.connect() as conn:
+            print("Database connected successfully.")
 
-        cur = conn.cursor()
-        print("Database connected successfully")
+            table_name = "autotask_raw"
+            row_count = conn.execute(text(f"SELECT COUNT(*) FROM {table_name}")).scalar_one()
+            print(f"Total rows in {table_name}: {row_count}")
 
-        # Count total rows
-        cur.execute("SELECT COUNT(*) FROM autotask_raw;")
-        count = cur.fetchone()
-        print("Total rows in autotask_raw:", count[0])
-
-        # Fetch sample rows
-        cur.execute("""
-            SELECT * FROM autotask_raw
-            LIMIT 5;
-        """)
-        rows = cur.fetchall()
-
-        print("\nSample rows:")
-        for row in rows:
-            print(row)
-
-        cur.close()
-        conn.close()
-
-        print("\nDatabase connection closed")
-
+            sample_df = pd.read_sql_query(
+                text(f"SELECT * FROM {table_name} LIMIT 5"),
+                conn,
+            )
+            print("\nSample rows:")
+            if sample_df.empty:
+                print("No rows found.")
+            else:
+                print(sample_df.to_string(index=False))
     except Exception as error:
         print("Connection failed:", error)
+    finally:
+        engine.dispose()
 
 
 if __name__ == "__main__":
     main()
-    

@@ -19,6 +19,8 @@ CSV_TABLE_MAP = {
     DATA_DIR / "Feature_Engineered" / "autotask_training_dataset.csv": "autotask_training_dataset",
     DATA_DIR / "Feature_Engineered" / "autotask_open_tickets_dataset.csv": "autotask_open_tickets_dataset",
     DATA_DIR / "Feature_Engineered" / "technician_profiles.csv": "autotask_technician_profiles",
+    DATA_DIR / "Feature_Engineered" / "employee_skills_profile.csv": "autotask_employee_skills_profile",
+    DATA_DIR / "Feature_Engineered" / "employee_skills_normalized.csv": "autotask_employee_skills_normalized",
     DATA_DIR / "NLP" / "ticket_similarity_matches.csv": "autotask_ticket_similarity_matches",
     DATA_DIR / "NLP" / "ticket_similarity_summary.csv": "autotask_ticket_similarity_summary",
     DATA_DIR / "Complexity" / "autotask_complexity_scored.csv": "autotask_complexity_scored",
@@ -31,6 +33,7 @@ CSV_TABLE_MAP = {
 JSON_TABLE_MAP = {
     DATA_DIR / "Cleaned_Data" / "autotask_cleaning_summary.json": "autotask_cleaning_summary",
     DATA_DIR / "Feature_Engineered" / "feature_engineering_summary.json": "autotask_feature_engineering_summary",
+    DATA_DIR / "Feature_Engineered" / "employee_skills_summary.json": "autotask_employee_skills_summary",
     DATA_DIR / "NLP" / "nlp_similarity_summary.json": "autotask_nlp_similarity_summary",
     DATA_DIR / "Complexity" / "complexity_scoring_summary.json": "autotask_complexity_scoring_summary",
     DATA_DIR / "Recommendations" / "recommendation_summary.json": "autotask_recommendation_summary",

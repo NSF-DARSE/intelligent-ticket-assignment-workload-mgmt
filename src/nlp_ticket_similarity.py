@@ -10,6 +10,11 @@ import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
+try:
+    from sentence_transformers import SentenceTransformer
+except ImportError:  # pragma: no cover - handled with a user-facing error at runtime
+    SentenceTransformer = None
+
 
 FEATURE_DATA_PATH = Path("data/Feature_Engineered/autotask_feature_engineered.csv")
 OUTPUT_DIR = Path("data/NLP")
@@ -20,8 +25,10 @@ RUN_SUMMARY_PATH = OUTPUT_DIR / "nlp_similarity_summary.json"
 TOP_K = 5
 BM25_K1 = 1.5
 BM25_B = 0.75
-HYBRID_TFIDF_WEIGHT = 0.60
-HYBRID_BM25_WEIGHT = 0.40
+EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+HYBRID_TFIDF_WEIGHT = 0.20
+HYBRID_BM25_WEIGHT = 0.20
+HYBRID_EMBEDDING_WEIGHT = 0.60
 
 
 def load_feature_data() -> pd.DataFrame:
@@ -98,6 +105,22 @@ def normalize_scores(scores: np.ndarray) -> np.ndarray:
     return scores / maximum
 
 
+def load_embedding_model() -> SentenceTransformer:
+    if SentenceTransformer is None:
+        raise ImportError(
+            "sentence-transformers is not installed. Run `pip install -r requirements.txt` "
+            "to enable the MiniLM embedding upgrade."
+        )
+
+    try:
+        return SentenceTransformer(EMBEDDING_MODEL_NAME)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Unable to load embedding model `{EMBEDDING_MODEL_NAME}`. "
+            "Make sure dependencies are installed and the model can be downloaded or loaded from cache."
+        ) from exc
+
+
 def prepare_ticket_sets(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     completed = df[df["resolution_hours"].notna()].copy()
     open_tickets = df[df["is_active_ticket"]].copy()
@@ -128,6 +151,18 @@ def build_similarity_outputs(
     open_matrix = vectorizer.transform(open_tickets["nlp_text"])
     tfidf_similarity_matrix = cosine_similarity(open_matrix, completed_matrix)
     bm25_index = build_bm25_index(completed["nlp_text"])
+    embedding_model = load_embedding_model()
+    completed_embeddings = embedding_model.encode(
+        completed["nlp_text"].tolist(),
+        normalize_embeddings=True,
+        show_progress_bar=False,
+    )
+    open_embeddings = embedding_model.encode(
+        open_tickets["nlp_text"].tolist(),
+        normalize_embeddings=True,
+        show_progress_bar=False,
+    )
+    embedding_similarity_matrix = np.matmul(open_embeddings, completed_embeddings.T)
 
     match_rows: list[dict] = []
     summary_rows: list[dict] = []
@@ -139,7 +174,12 @@ def build_similarity_outputs(
         tfidf_scores = tfidf_similarity_matrix[open_idx]
         raw_bm25_scores = bm25_scores(ticket["nlp_text"], bm25_index)
         normalized_bm25_scores = normalize_scores(raw_bm25_scores)
-        hybrid_scores = (HYBRID_TFIDF_WEIGHT * tfidf_scores) + (HYBRID_BM25_WEIGHT * normalized_bm25_scores)
+        embedding_scores = embedding_similarity_matrix[open_idx]
+        hybrid_scores = (
+            (HYBRID_TFIDF_WEIGHT * tfidf_scores)
+            + (HYBRID_BM25_WEIGHT * normalized_bm25_scores)
+            + (HYBRID_EMBEDDING_WEIGHT * embedding_scores)
+        )
 
         top_indices = np.argsort(hybrid_scores)[::-1][:TOP_K]
         top_scores = hybrid_scores[top_indices]
@@ -148,6 +188,7 @@ def build_similarity_outputs(
         matched_tickets["tfidf_similarity_score"] = tfidf_scores[top_indices]
         matched_tickets["bm25_score"] = raw_bm25_scores[top_indices]
         matched_tickets["bm25_score_normalized"] = normalized_bm25_scores[top_indices]
+        matched_tickets["embedding_similarity_score"] = embedding_scores[top_indices]
         matched_tickets["hybrid_text_score"] = hybrid_scores[top_indices]
 
         weighted_resolution = np.average(
@@ -176,6 +217,7 @@ def build_similarity_outputs(
                     "tfidf_similarity_score": round(float(match["tfidf_similarity_score"]), 4),
                     "bm25_score": round(float(match["bm25_score"]), 4),
                     "bm25_score_normalized": round(float(match["bm25_score_normalized"]), 4),
+                    "embedding_similarity_score": round(float(match["embedding_similarity_score"]), 4),
                     "hybrid_text_score": round(float(match["hybrid_text_score"]), 4),
                 }
             )
@@ -195,6 +237,10 @@ def build_similarity_outputs(
                 "avg_bm25_score_top5": round(float(matched_tickets["bm25_score"].mean()), 4),
                 "top_bm25_score_normalized": round(float(matched_tickets.iloc[0]["bm25_score_normalized"]), 4),
                 "avg_bm25_score_normalized_top5": round(float(matched_tickets["bm25_score_normalized"].mean()), 4),
+                "top_embedding_similarity_score": round(float(matched_tickets.iloc[0]["embedding_similarity_score"]), 4),
+                "avg_embedding_similarity_score_top5": round(
+                    float(matched_tickets["embedding_similarity_score"].mean()), 4
+                ),
                 "top_hybrid_text_score": round(float(matched_tickets.iloc[0]["hybrid_text_score"]), 4),
                 "avg_hybrid_text_score_top5": round(float(matched_tickets["hybrid_text_score"].mean()), 4),
                 "estimated_resolution_hours_nlp": round(float(weighted_resolution), 2),
@@ -215,10 +261,13 @@ def build_similarity_outputs(
         "match_rows": int(len(matches_df)),
         "summary_rows": int(len(summary_df)),
         "top_k": TOP_K,
+        "embedding_model_name": EMBEDDING_MODEL_NAME,
         "tfidf_weight": HYBRID_TFIDF_WEIGHT,
         "bm25_weight": HYBRID_BM25_WEIGHT,
+        "embedding_weight": HYBRID_EMBEDDING_WEIGHT,
         "average_top_similarity": round(float(summary_df["top_similarity_score"].mean()), 4),
         "average_top_bm25_score": round(float(summary_df["top_bm25_score"].mean()), 4),
+        "average_top_embedding_similarity": round(float(summary_df["top_embedding_similarity_score"].mean()), 4),
         "average_top_hybrid_text_score": round(float(summary_df["top_hybrid_text_score"].mean()), 4),
         "average_estimated_resolution_hours_nlp": round(
             float(summary_df["estimated_resolution_hours_nlp"].mean()), 2
