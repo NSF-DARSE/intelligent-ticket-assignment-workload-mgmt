@@ -1,5 +1,0 @@
-completed_by,tickets_completed,avg_resolution_hours,median_resolution_hours,avg_estimated_hours,avg_first_response_minutes,critical_tickets_completed,high_tickets_completed,distinct_issue_types,distinct_accounts
-"Taylor, Mark",206,120.29,123.75,2.0,0.0,28,37,8,2
-"Moore, James",193,128.54,141.5,2.0,0.0,28,34,8,2
-"Anderson, Scott",189,121.75,122.5,2.0,0.0,19,31,8,2
-"Miller, Susan",174,112.51,108.75,2.0,0.0,28,26,8,2

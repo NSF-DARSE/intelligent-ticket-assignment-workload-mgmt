@@ -5,8 +5,26 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 
+from assignment_scorer import (
+    TECHNICIAN_WEIGHTS,
+    build_workload_snapshot,
+    canonicalize_technician_key,
+    capacity_penalty,
+    complexity_fit_score,
+    default_workload_record,
+    distribution_penalty,
+    experienced_low_risk_penalty,
+    exploration_capacity_bonus,
+    high_risk_new_technician_block,
+    new_technician_bonus,
+    new_technician_penalty,
+    new_technician_top1_cap_block,
+    priority_balance_score,
+    sla_pressure_score,
+    sla_urgency_fit_score,
+)
 from load_outputs_to_postgres import get_db_url
 
 
@@ -17,6 +35,7 @@ RECOMMENDATIONS_PATH = BASE_DIR / "data" / "Recommendations" / "assignment_recom
 TIME_PATH = BASE_DIR / "data" / "Time_Estimation" / "time_estimation_open_ticket_predictions.csv"
 NLP_PATH = BASE_DIR / "data" / "NLP" / "ticket_similarity_summary.csv"
 EMPLOYEE_SKILLS_PROFILE_PATH = BASE_DIR / "data" / "Feature_Engineered" / "employee_skills_profile.csv"
+DISPATCH_TABLE_NAME = "autotask_dashboard_dispatch_actions"
 
 BRAND_COLORS = {
     "cream": "#f5f5f2",
@@ -25,6 +44,7 @@ BRAND_COLORS = {
     "blue_dark": "#174e79",
     "orange": "#ff9d35",
     "orange_dark": "#f1871d",
+    "green_light": "#9bd77a",
     "slate": "#5d7082",
     "rose": "#d55a4d",
     "white": "#ffffff",
@@ -224,6 +244,278 @@ def load_table_with_fallback(table_name: str, csv_path: Path) -> pd.DataFrame:
         return pd.read_csv(csv_path)
 
 
+def load_dispatch_actions() -> pd.DataFrame:
+    columns = [
+        "ticket_id",
+        "selected_technician",
+        "selected_employee_name",
+        "selected_rank",
+        "assigned_at",
+    ]
+    try:
+        engine = create_engine(get_db_url())
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    f"""
+                    CREATE TABLE IF NOT EXISTS {DISPATCH_TABLE_NAME} (
+                        ticket_id TEXT PRIMARY KEY,
+                        selected_technician TEXT NOT NULL,
+                        selected_employee_name TEXT,
+                        selected_rank INTEGER,
+                        assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+        dispatch_df = pd.read_sql_table(DISPATCH_TABLE_NAME, engine)
+        for column in columns:
+            if column not in dispatch_df.columns:
+                dispatch_df[column] = pd.NA
+        dispatch_df["ticket_id"] = dispatch_df["ticket_id"].astype(str)
+        dispatch_df["selected_technician"] = dispatch_df["selected_technician"].map(canonicalize_technician_key)
+        return dispatch_df[columns]
+    except Exception:
+        return pd.DataFrame(columns=columns)
+
+
+def persist_dispatch_action(ticket_row: pd.Series, selected_rank: int) -> None:
+    selected_technician = canonicalize_technician_key(ticket_row.get(f"top_{selected_rank}_technician_key"))
+    selected_employee_name = ticket_row.get(f"top_{selected_rank}_technician")
+    if pd.isna(selected_technician):
+        raise ValueError("The selected technician is missing for this assignment.")
+
+    payload = {
+        "ticket_id": str(ticket_row["ticket_id"]),
+        "selected_technician": str(selected_technician),
+        "selected_employee_name": str(selected_employee_name) if pd.notna(selected_employee_name) else None,
+        "selected_rank": int(selected_rank),
+    }
+
+    engine = create_engine(get_db_url())
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS {DISPATCH_TABLE_NAME} (
+                    ticket_id TEXT PRIMARY KEY,
+                    selected_technician TEXT NOT NULL,
+                    selected_employee_name TEXT,
+                    selected_rank INTEGER,
+                    assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
+                INSERT INTO {DISPATCH_TABLE_NAME}
+                    (ticket_id, selected_technician, selected_employee_name, selected_rank, assigned_at)
+                VALUES
+                    (:ticket_id, :selected_technician, :selected_employee_name, :selected_rank, CURRENT_TIMESTAMP)
+                ON CONFLICT (ticket_id) DO UPDATE SET
+                    selected_technician = EXCLUDED.selected_technician,
+                    selected_employee_name = EXCLUDED.selected_employee_name,
+                    selected_rank = EXCLUDED.selected_rank,
+                    assigned_at = CURRENT_TIMESTAMP
+                """
+            ),
+            payload,
+        )
+
+
+def apply_dispatch_actions(
+    feature_df: pd.DataFrame,
+    recommendations_df: pd.DataFrame,
+    dispatch_df: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    if dispatch_df.empty:
+        return feature_df, recommendations_df
+
+    feature_df = feature_df.copy()
+    recommendations_df = recommendations_df.copy()
+
+    dispatch_lookup = dispatch_df.set_index("ticket_id").to_dict(orient="index")
+
+    for ticket_id, action in dispatch_lookup.items():
+        feature_mask = feature_df["ticket_id"].astype(str) == str(ticket_id)
+        recommendations_mask = recommendations_df["ticket_id"].astype(str) == str(ticket_id)
+
+        feature_df.loc[feature_mask, "primary_resource"] = action["selected_technician"]
+        feature_df.loc[feature_mask, "primary_resource_display"] = action["selected_employee_name"]
+        feature_df.loc[feature_mask, "is_unassigned"] = False
+
+        recommendations_df.loc[recommendations_mask, "current_assignee"] = action["selected_technician"]
+        recommendations_df.loc[recommendations_mask, "current_assignee_display"] = action["selected_employee_name"]
+
+    return feature_df, recommendations_df
+
+
+def recompute_remaining_recommendations(
+    active_df: pd.DataFrame,
+    recommendation_rows: pd.DataFrame,
+    dispatch_df: pd.DataFrame,
+) -> pd.DataFrame:
+    if recommendation_rows.empty:
+        return recommendation_rows
+
+    active_df = active_df.copy()
+    recommendation_rows = recommendation_rows.copy()
+    recommendation_rows["recommended_technician"] = recommendation_rows["recommended_technician"].map(canonicalize_technician_key)
+
+    unassigned_ticket_ids = set(
+        active_df.loc[active_df["primary_resource"].isna(), "ticket_id"].astype(str).tolist()
+    )
+    recompute_df = recommendation_rows[recommendation_rows["ticket_id"].astype(str).isin(unassigned_ticket_ids)].copy()
+    assigned_df = recommendation_rows[~recommendation_rows["ticket_id"].astype(str).isin(unassigned_ticket_ids)].copy()
+
+    if recompute_df.empty:
+        return assigned_df
+
+    workload_df = build_workload_snapshot(active_df)
+    workload_lookup: dict[str, dict] = {}
+    if not workload_df.empty:
+        for _, row in workload_df.iterrows():
+            technician = canonicalize_technician_key(row["technician"])
+            workload_lookup[technician] = row.to_dict()
+
+    for technician in recompute_df["recommended_technician"].dropna().unique():
+        workload_lookup.setdefault(technician, default_workload_record())
+
+    dispatch_top1_counts: dict[str, int] = {}
+    if not dispatch_df.empty:
+        dispatch_df = dispatch_df.copy()
+        dispatch_df["selected_technician"] = dispatch_df["selected_technician"].map(canonicalize_technician_key)
+        dispatch_top1_counts = (
+            dispatch_df.groupby("selected_technician")["ticket_id"]
+            .count()
+            .astype(int)
+            .to_dict()
+        )
+
+    mean_open_count = float(
+        pd.Series([values.get("open_ticket_count", 0.0) for values in workload_lookup.values()], dtype=float).mean()
+    ) if workload_lookup else 0.0
+    mean_open_hours = float(
+        pd.Series([values.get("open_estimated_hours", 0.0) for values in workload_lookup.values()], dtype=float).mean()
+    ) if workload_lookup else 0.0
+
+    active_lookup = active_df.drop_duplicates("ticket_id").set_index("ticket_id").to_dict(orient="index")
+    rescored_rows: list[dict] = []
+
+    for _, row in recompute_df.iterrows():
+        ticket_id = str(row["ticket_id"])
+        ticket_context = active_lookup.get(ticket_id, {})
+        ticket = {
+            "priority": row.get("ticket_priority"),
+            "sla_priority_class": row.get("ticket_sla_priority_class"),
+            "complexity_score": row.get("ticket_complexity_score", ticket_context.get("complexity_score")),
+            "complexity_class": row.get("ticket_complexity_class", ticket_context.get("complexity_class")),
+            "predicted_resolution_hours_final": ticket_context.get("predicted_resolution_hours_final"),
+            "estimated_resolution_hours_nlp": ticket_context.get("estimated_resolution_hours_nlp"),
+            "estimated_hours_clean": ticket_context.get("estimated_hours_clean"),
+            "estimated_hours": ticket_context.get("estimated_hours"),
+            "is_service_request": bool(ticket_context.get("is_service_request", False)),
+            "is_maintenance": bool(ticket_context.get("is_maintenance", False)),
+        }
+
+        technician = canonicalize_technician_key(row.get("recommended_technician"))
+        tech_workload = workload_lookup.setdefault(technician, default_workload_record())
+        skill = {
+            "issue_type_skill": float(row.get("issue_type_skill_score", 0.0) or 0.0),
+            "queue_group_skill": float(row.get("queue_group_skill_score", 0.0) or 0.0),
+            "account_familiarity": float(row.get("account_familiarity_score", 0.0) or 0.0),
+        }
+        tech_history = {
+            "completed_ticket_count": int(row.get("historical_completed_tickets", 0) or 0),
+            "resolution_efficiency_score": float(row.get("resolution_efficiency_score", 0.0) or 0.0),
+        }
+        skill_alignment_score = float(row.get("skill_alignment_score", 0.0) or 0.0)
+        skill_experience_score = round(
+            min(1.0, (skill_alignment_score * 0.65) + (skill["issue_type_skill"] * 0.35)),
+            4,
+        )
+
+        balance_score = priority_balance_score(pd.Series(ticket), pd.Series(tech_workload))
+        sla_pressure = sla_pressure_score(pd.Series(ticket), pd.Series(tech_workload))
+        sla_urgency_fit = sla_urgency_fit_score(pd.Series(ticket), skill, tech_workload)
+        complexity_fit = complexity_fit_score(pd.Series(ticket), tech_workload)
+        overload_penalty = capacity_penalty(tech_workload)
+        fairness_penalty = distribution_penalty(tech_workload, mean_open_count, mean_open_hours)
+        exploration_bonus = new_technician_bonus(tech_history, tech_workload, pd.Series(ticket))
+        low_risk_senior_penalty = experienced_low_risk_penalty(tech_history, tech_workload, pd.Series(ticket))
+        low_risk_new_tech_bonus = exploration_capacity_bonus(
+            tech_history,
+            tech_workload,
+            pd.Series(ticket),
+            dispatch_top1_counts.get(technician, 0),
+        )
+        onboarding_penalty = new_technician_penalty(
+            tech_history,
+            tech_workload,
+            pd.Series(ticket),
+            dispatch_top1_counts.get(technician, 0),
+        )
+
+        total_score = (
+            TECHNICIAN_WEIGHTS["issue_type_skill"] * skill["issue_type_skill"]
+            + TECHNICIAN_WEIGHTS["skill_experience"] * skill_experience_score
+            + TECHNICIAN_WEIGHTS["bm25_text_expertise"] * float(row.get("bm25_text_expertise_score", 0.0) or 0.0)
+            + TECHNICIAN_WEIGHTS["queue_group_skill"] * skill["queue_group_skill"]
+            + TECHNICIAN_WEIGHTS["account_familiarity"] * skill["account_familiarity"]
+            + TECHNICIAN_WEIGHTS["workload_hours"] * float(tech_workload.get("workload_hours_score", 1.0))
+            + TECHNICIAN_WEIGHTS["workload_count"] * float(tech_workload.get("workload_count_score", 1.0))
+            + TECHNICIAN_WEIGHTS["priority_balance"] * balance_score
+            + TECHNICIAN_WEIGHTS["resolution_efficiency"] * tech_history["resolution_efficiency_score"]
+            + TECHNICIAN_WEIGHTS["sla_pressure"] * sla_pressure
+            + TECHNICIAN_WEIGHTS["sla_urgency_fit"] * sla_urgency_fit
+            + TECHNICIAN_WEIGHTS["complexity_fit"] * complexity_fit
+        )
+        total_score = max(
+            0.0,
+            total_score
+            - overload_penalty
+            - fairness_penalty
+            - onboarding_penalty
+            - low_risk_senior_penalty
+            + exploration_bonus
+            + low_risk_new_tech_bonus,
+        )
+        if high_risk_new_technician_block(tech_history, pd.Series(ticket)):
+            total_score = total_score * 0.05
+        if new_technician_top1_cap_block(tech_history, dispatch_top1_counts.get(technician, 0)):
+            total_score = total_score * 0.10
+
+        updated = row.to_dict()
+        updated["recommendation_score"] = round(float(total_score), 4)
+        updated["workload_hours_score"] = round(float(tech_workload.get("workload_hours_score", 1.0)), 4)
+        updated["workload_count_score"] = round(float(tech_workload.get("workload_count_score", 1.0)), 4)
+        updated["priority_balance_score"] = balance_score
+        updated["sla_pressure_score"] = sla_pressure
+        updated["sla_urgency_fit_score"] = sla_urgency_fit
+        updated["complexity_fit_score"] = complexity_fit
+        updated["capacity_penalty_score"] = overload_penalty
+        updated["distribution_penalty_score"] = fairness_penalty
+        updated["new_technician_bonus_score"] = exploration_bonus
+        updated["low_risk_senior_penalty_score"] = low_risk_senior_penalty
+        updated["low_risk_new_tech_bonus_score"] = low_risk_new_tech_bonus
+        updated["new_technician_penalty_score"] = onboarding_penalty
+        updated["skill_experience_score"] = skill_experience_score
+        updated["open_ticket_count"] = int(tech_workload.get("open_ticket_count", 0))
+        updated["open_estimated_hours"] = round(float(tech_workload.get("open_estimated_hours", 0.0)), 2)
+        rescored_rows.append(updated)
+
+    rescored_df = pd.DataFrame(rescored_rows)
+    rescored_df = rescored_df.sort_values(["ticket_id", "recommendation_score"], ascending=[True, False]).copy()
+    rescored_df["recommendation_rank"] = rescored_df.groupby("ticket_id").cumcount() + 1
+    rescored_df = rescored_df[rescored_df["recommendation_rank"] <= 3].copy()
+
+    if assigned_df.empty:
+        return rescored_df
+    return pd.concat([assigned_df, rescored_df], ignore_index=True)
+
+
 def build_employee_name_lookup(employee_skills_df: pd.DataFrame) -> dict[str, str]:
     if employee_skills_df.empty:
         return {}
@@ -380,10 +672,13 @@ def build_ticket_recommendation_board(recommendations_df: pd.DataFrame) -> pd.Da
                 "ticket_priority",
                 "current_assignee",
                 "top_1_technician",
+                "top_1_technician_key",
                 "top_1_score",
                 "top_2_technician",
+                "top_2_technician_key",
                 "top_2_score",
                 "top_3_technician",
+                "top_3_technician_key",
                 "top_3_score",
             ]
         )
@@ -408,9 +703,11 @@ def build_ticket_recommendation_board(recommendations_df: pd.DataFrame) -> pd.Da
             ranked = group[group["recommendation_rank"] == rank]
             if ranked.empty:
                 row[f"top_{rank}_technician"] = None
+                row[f"top_{rank}_technician_key"] = None
                 row[f"top_{rank}_score"] = None
             else:
                 row[f"top_{rank}_technician"] = ranked["recommended_employee_name"].iloc[0]
+                row[f"top_{rank}_technician_key"] = ranked["recommended_technician"].iloc[0]
                 row[f"top_{rank}_score"] = ranked["recommendation_score"].iloc[0]
 
         rows.append(row)
@@ -486,49 +783,140 @@ def build_popup_technician_summary(df: pd.DataFrame) -> pd.DataFrame:
     return technician_summary.sort_values(["Tickets Solved", "Tickets Working", "Technician"], ascending=[False, False, True])
 
 
-def summary_breakdown_button(
+def navigate_to_summary(detail_key: str) -> None:
+    st.session_state["summary_detail_key"] = detail_key
+
+
+def clear_summary_navigation() -> None:
+    st.session_state["summary_detail_key"] = None
+
+
+def summary_navigation_button(
     label: str,
     count_text: str,
+    detail_key: str,
+) -> None:
+    st.button(
+        f"{label} {count_text}",
+        key=f"summary_nav_{detail_key}",
+        use_container_width=True,
+        on_click=navigate_to_summary,
+        args=(detail_key,),
+    )
+
+
+def render_summary_detail_page(
+    label: str,
     df: pd.DataFrame,
     key_prefix: str,
-    delta_text: str | None = None,
+    recommendations_df: pd.DataFrame,
 ) -> None:
-    button_label = f"{label} {count_text}"
+    st.button("Back to Dashboard", key=f"back_{key_prefix}", on_click=clear_summary_navigation)
+    st.markdown(f"## {label}")
+    st.caption("Detailed view for the selected ticket group.")
 
-    with st.popover(button_label, use_container_width=True):
-        st.metric(label, count_text, delta=delta_text)
-        st.caption("Click summary buttons to inspect issue types and ticket categories for that ticket set.")
-        if df.empty:
-            st.info("No tickets are available for this view.")
-            return
+    ticket_count = int(df["ticket_id"].nunique()) if "ticket_id" in df.columns else len(df)
+    completed_count = int(df["resolution_hours"].notna().sum()) if "resolution_hours" in df.columns else 0
+    assigned_count = int(df["primary_resource"].notna().sum()) if "primary_resource" in df.columns else 0
+    unassigned_count = int(df["primary_resource"].isna().sum()) if "primary_resource" in df.columns else 0
 
-        issue_type_counts, category_counts = build_ticket_breakdown(df)
-        technician_summary = build_popup_technician_summary(df)
-        pop_col1, pop_col2 = st.columns(2)
-        with pop_col1:
-            st.markdown("**Ticket Types**")
-            st.dataframe(issue_type_counts, use_container_width=True, hide_index=True)
-            dataframe_download(
-                f"Download {label} Ticket Types",
-                issue_type_counts,
-                f"{key_prefix}_ticket_types.csv",
-            )
-        with pop_col2:
-            st.markdown("**Ticket Categories**")
-            st.dataframe(category_counts, use_container_width=True, hide_index=True)
-            dataframe_download(
-                f"Download {label} Ticket Categories",
-                category_counts,
-                f"{key_prefix}_ticket_categories.csv",
-            )
+    detail_recommendations = pd.DataFrame()
+    if not recommendations_df.empty and "ticket_id" in df.columns:
+        detail_recommendations = recommendations_df[
+            recommendations_df["ticket_id"].isin(df["ticket_id"].dropna().unique())
+        ].copy()
 
-        st.markdown("**Technician Summary**")
-        st.dataframe(technician_summary, use_container_width=True, hide_index=True)
+    detail_board = build_ticket_recommendation_board(detail_recommendations)
+    recommended_count = int(detail_board["ticket_id"].nunique()) if not detail_board.empty else 0
+
+    d1, d2, d3, d4, d5 = st.columns(5)
+    d1.metric("Tickets in View", f"{ticket_count:,}")
+    d2.metric("Completed Tickets", f"{completed_count:,}")
+    d3.metric("Currently Assigned", f"{assigned_count:,}")
+    d4.metric("Currently Unassigned", f"{unassigned_count:,}")
+    d5.metric("Tickets With Recommendations", f"{recommended_count:,}")
+
+    if df.empty:
+        st.info("No tickets are available for this view.")
+        return
+
+    issue_type_counts, category_counts = build_ticket_breakdown(df)
+    technician_summary = build_popup_technician_summary(df)
+
+    top_col1, top_col2 = st.columns(2)
+    with top_col1:
+        st.markdown("### Ticket Types")
         dataframe_download(
-            f"Download {label} Technician Summary",
-            technician_summary,
-            f"{key_prefix}_technician_summary.csv",
+            f"Download {label} Ticket Types",
+            issue_type_counts,
+            f"{key_prefix}_ticket_types.csv",
         )
+        st.dataframe(issue_type_counts, use_container_width=True, hide_index=True)
+    with top_col2:
+        st.markdown("### Ticket Categories")
+        dataframe_download(
+            f"Download {label} Ticket Categories",
+            category_counts,
+            f"{key_prefix}_ticket_categories.csv",
+        )
+        st.dataframe(category_counts, use_container_width=True, hide_index=True)
+
+    st.markdown("### Technician Summary")
+    dataframe_download(
+        f"Download {label} Technician Summary",
+        technician_summary,
+        f"{key_prefix}_technician_summary.csv",
+    )
+    st.dataframe(technician_summary, use_container_width=True, hide_index=True)
+
+    st.markdown("### Tickets in This View")
+    ticket_cols = [
+        "ticket_id",
+        "title",
+        "priority",
+        "issue_type",
+        "sla_priority_class",
+        "complexity_class",
+        "primary_resource_display",
+        "completed_by_display",
+        "account",
+        "status",
+    ]
+    available_ticket_cols = [col for col in ticket_cols if col in df.columns]
+    ticket_view = df[available_ticket_cols].copy()
+    if "primary_resource_display" in ticket_view.columns:
+        ticket_view = ticket_view.rename(columns={"primary_resource_display": "current_assignee"})
+    if "completed_by_display" in ticket_view.columns:
+        ticket_view = ticket_view.rename(columns={"completed_by_display": "completed_by"})
+    dataframe_download(
+        f"Download {label} Ticket List",
+        ticket_view,
+        f"{key_prefix}_tickets.csv",
+    )
+    st.dataframe(ticket_view, use_container_width=True, hide_index=True)
+
+    st.markdown("### Recommended Technicians")
+    if detail_board.empty:
+        st.info("No recommendation records are available for the tickets in this view.")
+    else:
+        board_view = detail_board[
+            [
+                "ticket_id",
+                "ticket_title",
+                "ticket_type",
+                "ticket_priority",
+                "current_assignee",
+                "top_1_technician",
+                "top_2_technician",
+                "top_3_technician",
+            ]
+        ].copy()
+        dataframe_download(
+            f"Download {label} Recommended Technicians",
+            board_view,
+            f"{key_prefix}_recommended_technicians.csv",
+        )
+        st.dataframe(board_view, use_container_width=True, hide_index=True)
 
 
 def build_recommendation_summary_table(recommendations_df: pd.DataFrame) -> pd.DataFrame:
@@ -561,17 +949,22 @@ def main() -> None:
 
     apply_theme()
 
-    feature_df, complexity_df, recommendations_df, time_df, nlp_df, employee_skills_df = load_data()
+    feature_df, _, recommendations_df, _, _, employee_skills_df = load_data()
     feature_df, recommendations_df = apply_display_names(feature_df, recommendations_df, employee_skills_df)
+    if "summary_detail_key" not in st.session_state:
+        st.session_state["summary_detail_key"] = None
+    dispatch_actions_df = load_dispatch_actions()
     if "ticket_status" not in recommendations_df.columns:
         status_map = feature_df[["ticket_id", "status"]].drop_duplicates()
         recommendations_df = recommendations_df.merge(status_map, on="ticket_id", how="left")
         recommendations_df = recommendations_df.rename(columns={"status": "ticket_status"})
 
+    feature_df, recommendations_df = apply_dispatch_actions(feature_df, recommendations_df, dispatch_actions_df)
+
     st.markdown(
         """
         <div class="hero-panel">
-          <h1>AUTO TASK AI TICKET RECOMMADATION SYSTEM</h1>
+          <h1>AUTO TASK AI TICKET RECOMMENDATION SYSTEM</h1>
           <p>Smart technician recommendation, workload balancing, and ticket intelligence in one unified operations portal.</p>
           <div class="portal-strip">
             <span class="portal-badge">Live Ticket Intelligence</span>
@@ -585,15 +978,19 @@ def main() -> None:
     )
     active_filtered = feature_df[feature_df["is_active_ticket"] == True].copy()
 
-    employee_summary = build_employee_summary(feature_df, recommendations_df, employee_skills_df)
-    top_recommendations = recommendations_df[recommendations_df["recommendation_rank"] == 1].copy()
-    filtered_top_recommendations = top_recommendations[
-        top_recommendations["ticket_id"].isin(active_filtered["ticket_id"])
-    ].copy()
-    filtered_recommendation_rows = recommendations_df[
+    simulated_recommendation_rows = recommendations_df[
         recommendations_df["ticket_id"].isin(active_filtered["ticket_id"])
     ].copy()
-    ticket_recommendation_board = build_ticket_recommendation_board(filtered_recommendation_rows)
+    simulated_recommendation_rows = recompute_remaining_recommendations(
+        active_filtered,
+        simulated_recommendation_rows,
+        dispatch_actions_df,
+    )
+    top_recommendations = simulated_recommendation_rows[simulated_recommendation_rows["recommendation_rank"] == 1].copy()
+    filtered_top_recommendations = top_recommendations.copy()
+    filtered_recommendation_rows = simulated_recommendation_rows.copy()
+    ticket_recommendation_board = build_ticket_recommendation_board(simulated_recommendation_rows)
+    employee_summary = build_employee_summary(feature_df, simulated_recommendation_rows, employee_skills_df)
     attention_table = build_attention_table(active_filtered)
 
     insight_col1, insight_col2, insight_col3 = st.columns(3)
@@ -620,20 +1017,29 @@ def main() -> None:
 
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
-        summary_breakdown_button("Total Tickets", f"{len(feature_df):,}", feature_df, "total_tickets")
+        summary_navigation_button("Total Tickets", f"{len(feature_df):,}", "total_tickets")
     with c2:
-        summary_breakdown_button("Completed Tickets", f"{len(completed_df):,}", completed_df, "completed_tickets")
+        summary_navigation_button("Completed Tickets", f"{len(completed_df):,}", "completed_tickets")
     with c3:
-        summary_breakdown_button(
-            "Open Tickets",
-            f"{open_ticket_count:,}",
-            active_filtered,
-            "open_tickets",
-        )
+        summary_navigation_button("Open Tickets", f"{open_ticket_count:,}", "open_tickets")
     with c4:
-        summary_breakdown_button("Assigned Open", f"{assigned_open_ticket_count:,}", assigned_open_df, "assigned_open_tickets")
+        summary_navigation_button("Assigned Open", f"{assigned_open_ticket_count:,}", "assigned_open_tickets")
     with c5:
-        summary_breakdown_button("Unassigned Open", f"{unassigned_open_ticket_count:,}", unassigned_open_df, "unassigned_open_tickets")
+        summary_navigation_button("Unassigned Open", f"{unassigned_open_ticket_count:,}", "unassigned_open_tickets")
+
+    summary_views = {
+        "total_tickets": ("Total Tickets", feature_df, "total_tickets", recommendations_df),
+        "completed_tickets": ("Completed Tickets", completed_df, "completed_tickets", recommendations_df),
+        "open_tickets": ("Open Tickets", active_filtered, "open_tickets", filtered_recommendation_rows),
+        "assigned_open_tickets": ("Assigned Open Tickets", assigned_open_df, "assigned_open_tickets", filtered_recommendation_rows),
+        "unassigned_open_tickets": ("Unassigned Open Tickets", unassigned_open_df, "unassigned_open_tickets", filtered_recommendation_rows),
+    }
+
+    selected_summary_key = st.session_state.get("summary_detail_key")
+    if selected_summary_key in summary_views:
+        label, detail_df, key_prefix, detail_recommendations = summary_views[selected_summary_key]
+        render_summary_detail_page(label, detail_df, key_prefix, detail_recommendations)
+        return
 
     tab1, tab2, tab3, tab4 = st.tabs(
         ["Overview", "Employees", "Recommendations", "Ticket Assignment Board"]
@@ -686,6 +1092,12 @@ def main() -> None:
                 color="priority",
                 barmode="stack",
                 title="Active Priority Mix by Technician",
+                color_discrete_map={
+                    "Low": BRAND_COLORS["green_light"],
+                    "Medium": BRAND_COLORS["orange"],
+                    "High": BRAND_COLORS["rose"],
+                    "Critical": BRAND_COLORS["blue_dark"],
+                },
             )
             fig.update_traces(texttemplate="%{y}", textposition="inside")
             fig.update_layout(xaxis_title="", yaxis_title="Tickets")
@@ -929,6 +1341,7 @@ def main() -> None:
         recommendation_board_view = ticket_recommendation_board[
             [
                 "ticket_id",
+                "ticket_title",
                 "ticket_type",
                 "ticket_priority",
                 "current_assignee",
@@ -939,6 +1352,7 @@ def main() -> None:
         ].copy() if not ticket_recommendation_board.empty else pd.DataFrame(
             columns=[
                 "ticket_id",
+                "ticket_title",
                 "ticket_type",
                 "ticket_priority",
                 "current_assignee",
@@ -1068,7 +1482,7 @@ def main() -> None:
 
     with tab4:
         st.subheader("Open Ticket Recommendation Board")
-        st.caption("One row per open ticket showing the current assigned technician and the top 3 recommended technicians from the PostgreSQL-backed recommendation output.")
+        st.caption("Assigned tickets are separated from unassigned tickets. Use the action buttons in the unassigned section to simulate dispatcher assignments and refresh the remaining recommendations.")
         board_kpi1, board_kpi2, board_kpi3, board_kpi4 = st.columns(4)
         board_kpi1.metric("Open Tickets in View", f"{len(active_filtered):,}")
         board_kpi2.metric("Currently Assigned", f"{assigned_open_ticket_count:,}")
@@ -1144,16 +1558,130 @@ def main() -> None:
                 fig.update_layout(xaxis_title="Recommended Technician", yaxis_title="Rank-1 Open Tickets")
                 st.plotly_chart(fig, use_container_width=True)
 
-        dataframe_download(
-            "Download Ticket Recommendation Board",
-            ticket_recommendation_board,
-            "ticket_recommendation_board.csv",
+        dispatched_lookup = (
+            dispatch_actions_df[["ticket_id", "selected_rank", "assigned_at"]].copy()
+            if not dispatch_actions_df.empty
+            else pd.DataFrame(columns=["ticket_id", "selected_rank", "assigned_at"])
         )
         board_display = ticket_recommendation_board.sort_values(
             ["ticket_priority", "ticket_id"],
             ascending=[True, True],
+        ).copy()
+        if not dispatched_lookup.empty:
+            board_display = board_display.merge(
+                dispatched_lookup,
+                on="ticket_id",
+                how="left",
+            )
+        for column in ["selected_rank", "assigned_at"]:
+            if column not in board_display.columns:
+                board_display[column] = pd.NA
+
+        assigned_board = board_display[
+            board_display["current_assignee"].fillna("Unassigned") != "Unassigned"
+        ].copy()
+        unassigned_board = board_display[
+            board_display["current_assignee"].fillna("Unassigned") == "Unassigned"
+        ].copy()
+
+        st.markdown("### Assigned Tickets")
+        assigned_board_view = assigned_board[
+            [
+                "ticket_id",
+                "ticket_title",
+                "ticket_priority",
+                "current_assignee",
+                "top_1_technician",
+                "top_2_technician",
+                "top_3_technician",
+            ]
+        ].copy() if not assigned_board.empty else pd.DataFrame(
+            columns=[
+                "ticket_id",
+                "ticket_title",
+                "ticket_priority",
+                "current_assignee",
+                "top_1_technician",
+                "top_2_technician",
+                "top_3_technician",
+            ]
         )
-        st.dataframe(board_display, use_container_width=True, hide_index=True)
+        dataframe_download(
+            "Download Assigned Ticket Board",
+            assigned_board_view,
+            "assigned_ticket_board.csv",
+        )
+        st.dataframe(assigned_board_view, use_container_width=True, hide_index=True)
+
+        st.markdown("### Unassigned Tickets")
+        unassigned_board_view = unassigned_board[
+            [
+                "ticket_id",
+                "ticket_title",
+                "ticket_priority",
+                "top_1_technician",
+                "top_2_technician",
+                "top_3_technician",
+            ]
+        ].copy() if not unassigned_board.empty else pd.DataFrame(
+            columns=[
+                "ticket_id",
+                "ticket_title",
+                "ticket_priority",
+                "top_1_technician",
+                "top_2_technician",
+                "top_3_technician",
+            ]
+        )
+        dataframe_download(
+            "Download Unassigned Ticket Board",
+            unassigned_board_view,
+            "unassigned_ticket_board.csv",
+        )
+        st.dataframe(unassigned_board_view, use_container_width=True, hide_index=True)
+
+        st.markdown("### Dispatch Actions for Unassigned Tickets")
+        if unassigned_board.empty:
+            st.success("All open tickets currently have an assigned technician in the dashboard simulation.")
+        else:
+            header_cols = st.columns([1.15, 2.3, 1.0, 1.2, 1.2, 1.2])
+            headers = ["Ticket ID", "Title", "Priority", "Top 1", "Top 2", "Top 3"]
+            for col, header in zip(header_cols, headers):
+                with col:
+                    st.markdown(f"**{header}**")
+
+            for row in unassigned_board.itertuples(index=False):
+                row_cols = st.columns([1.15, 2.3, 1.0, 1.2, 1.2, 1.2])
+                with row_cols[0]:
+                    st.write(row.ticket_id)
+                with row_cols[1]:
+                    st.write(row.ticket_title)
+                with row_cols[2]:
+                    st.write(row.ticket_priority)
+
+                button_specs = [
+                    (1, row.top_1_technician),
+                    (2, row.top_2_technician),
+                    (3, row.top_3_technician),
+                ]
+
+                for button_col, (rank, tech_name) in zip(row_cols[3:], button_specs):
+                    with button_col:
+                        disabled = pd.isna(tech_name)
+                        label = str(tech_name) if not disabled else "-"
+                        if st.button(
+                            label,
+                            key=f"dispatch_{row.ticket_id}_{rank}",
+                            use_container_width=True,
+                            disabled=disabled,
+                        ):
+                            try:
+                                persist_dispatch_action(pd.Series(row._asdict()), rank)
+                                load_data.clear()
+                                st.rerun()
+                            except Exception as exc:
+                                st.error(f"Could not save simulated assignment: {exc}")
+                st.divider()
 
 if __name__ == "__main__":
     main()

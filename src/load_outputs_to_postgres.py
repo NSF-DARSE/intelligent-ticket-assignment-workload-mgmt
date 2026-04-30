@@ -51,21 +51,29 @@ DATETIME_COLUMNS = {
 def get_db_url() -> str:
     load_dotenv(PROJECT_ROOT / ".env")
 
-    user = os.getenv("DB_USER", "postgres")
-    password = os.getenv("DB_PASSWORD", "2014")
-    if password == "your_password":
-        password = "2014"
-    host = os.getenv("DB_HOST", "localhost")
-    port = os.getenv("DB_PORT", "5432")
-    db_name = os.getenv("DB_NAME", "Intelligent Ticket Assignment & Workload Management")
+    env_values = {
+        "DB_USER": os.getenv("DB_USER", "").strip(),
+        "DB_PASSWORD": os.getenv("DB_PASSWORD", "").strip(),
+        "DB_HOST": os.getenv("DB_HOST", "").strip(),
+        "DB_PORT": os.getenv("DB_PORT", "").strip(),
+        "DB_NAME": os.getenv("DB_NAME", "").strip(),
+    }
+    missing = [name for name, value in env_values.items() if not value]
+    if missing:
+        missing_text = ", ".join(missing)
+        raise ValueError(f"Missing database configuration in .env: {missing_text}")
+
+    sslmode = os.getenv("DB_SSLMODE", "").strip()
+    query = {"sslmode": sslmode} if sslmode else None
 
     return URL.create(
         "postgresql+psycopg2",
-        username=user,
-        password=password,
-        host=host,
-        port=int(port),
-        database=db_name,
+        username=env_values["DB_USER"],
+        password=env_values["DB_PASSWORD"],
+        host=env_values["DB_HOST"],
+        port=int(env_values["DB_PORT"]),
+        database=env_values["DB_NAME"],
+        query=query,
     )
 
 

@@ -9,9 +9,6 @@ import requests
 from dotenv import load_dotenv
 
 
-DEFAULT_ZONE_INFO_URL = "https://webservices.autotask.net/ATServicesRest/V1.0/zoneInformation"
-
-
 @dataclass
 class AutotaskConfig:
     base_url: str
@@ -64,7 +61,7 @@ def ensure_trailing_slash(value: str) -> str:
 
 
 def discover_base_url(username: str) -> str:
-    zone_info_url = os.getenv("AUTOTASK_ZONE_INFO_URL", DEFAULT_ZONE_INFO_URL).strip()
+    zone_info_url = os.getenv("AUTOTASK_ZONE_INFO_URL", "").strip()
     if not username or not zone_info_url:
         return ""
 

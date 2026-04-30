@@ -1,4 +1,4 @@
-# AUTO TASK AI TICKET RECOMMADATION SYSTEM
+# AUTO TASK AI TICKET RECOMMENDATION SYSTEM
 
 ## Overview
 
@@ -16,6 +16,8 @@ The system:
 - displays the results in a Streamlit dashboard
 
 The dashboard is the final user-facing portal. The Python pipeline is the backend that prepares and scores the data.
+
+Generated datasets, local database settings, Azure setup helpers, and private input files stay local and are not meant to be committed to Git.
 
 ## Project Flow
 
@@ -37,13 +39,6 @@ The project runs in this order:
 
 ```text
 Project_Autotask
-|-- data
-|   |-- Raw_Data
-|   |-- Cleaned_Data
-|   |-- Feature_Engineered
-|   |-- NLP
-|   |-- Complexity
-|   `-- Recommendations
 |-- sql
 |   `-- create_autotask_table.sql
 |-- src
@@ -63,7 +58,9 @@ Project_Autotask
 |   `-- time_estimation_model.py
 |-- main.py
 |-- requirements.txt
-|-- Skillsdataset.csv
+|-- .env.example
+|-- data/                   # local generated outputs (not committed)
+|-- Skillsdataset.csv       # local input file (not committed)
 `-- README.md
 ```
 
@@ -400,9 +397,6 @@ Run:
 ```powershell
 .\venv\Scripts\python.exe -m streamlit run src\interactive_dashboard.py
 ```
-
-Dashboard URL:
-- [http://localhost:8501](http://localhost:8501)
 
 ## Run the Full Flow in One Command
 
