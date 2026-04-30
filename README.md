@@ -426,6 +426,12 @@ You can also use `main.py` as the single entry point.
 .\venv\Scripts\python.exe main.py status
 ```
 
+## License
+
+This project is released under the MIT License.
+
+See [LICENSE](LICENSE) for the full license text.
+
 ### Run the full pipeline
 
 ```powershell
