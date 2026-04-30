@@ -41,6 +41,10 @@ The project runs in this order:
 Project_Autotask
 |-- sql
 |   `-- create_autotask_table.sql
+|-- tests
+|   |-- test_assignment_scorer.py
+|   |-- test_clean_ticket_data.py
+|   `-- test_feature_pipeline.py
 |-- src
 |   |-- assignment_scorer.py
 |   |-- autotask_api_client.py
@@ -57,7 +61,12 @@ Project_Autotask
 |   |-- run_sandbox_pipeline.py
 |   `-- time_estimation_model.py
 |-- main.py
+|-- pyproject.toml
 |-- requirements.txt
+|-- CHANGELOG.md
+|-- RELEASE_NOTES.md
+|-- MIGRATION_GUIDE.md
+|-- KNOWN_ISSUES.md
 |-- .env.example
 |-- data/                   # local generated outputs (not committed)
 |-- Skillsdataset.csv       # local input file (not committed)
@@ -84,6 +93,8 @@ python -m venv venv
 .\venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
+The repository also includes [pyproject.toml](pyproject.toml) for project metadata and release version tracking.
+
 ### 4. Configure `.env`
 
 Create a `.env` file from `.env.example` and provide values for:
@@ -108,6 +119,18 @@ Run:
 
 ```powershell
 .\venv\Scripts\python.exe src\db_connection.py
+```
+
+### 6. Run the automated tests
+
+What this step does:
+- verifies core scoring, cleaning, and feature-engineering logic
+- provides evidence that the software still works after changes
+
+Run:
+
+```powershell
+.\venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
 ## Step-by-Step Pipeline
@@ -426,11 +449,26 @@ You can also use `main.py` as the single entry point.
 .\venv\Scripts\python.exe main.py status
 ```
 
+### Run the test suite
+
+```powershell
+.\venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
 ## License
 
 This project is released under the MIT License.
 
 See [LICENSE](LICENSE) for the full license text.
+
+## Release and Project Documents
+
+- [CHANGELOG.md](CHANGELOG.md) documents detailed release changes
+- [RELEASE_NOTES.md](RELEASE_NOTES.md) summarizes the current release
+- [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) explains how teammates should move to the cleaned repository structure
+- [KNOWN_ISSUES.md](KNOWN_ISSUES.md) lists current limitations
+- [docs/API_REFERENCE.md](docs/API_REFERENCE.md) summarizes the main project entry points
+- [docs/PERFORMANCE.md](docs/PERFORMANCE.md) explains model choices, performance tradeoffs, and profiling guidance
 
 ### Run the full pipeline
 

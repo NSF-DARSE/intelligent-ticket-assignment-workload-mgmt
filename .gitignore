@@ -216,3 +216,4 @@ temp_test_write.txt
 data/
 Skillsdataset.csv
 src/azure_postgres_setup.py
+tests/tmp_*/
