@@ -21,10 +21,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Create virtual environment and install dependencies
+      - name: Validate requirements file
         run: |
-          python -m venv antenv
-          source antenv/bin/activate
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
@@ -32,7 +30,16 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: python-app
-          path: .
+          path: |
+            .
+            !antenv/
+            !.venv/
+            !venv/
+            !__pycache__/
+            !tests/tmp_*/
+            !data/
+            !reports/
+            !*.pyc
 
   deploy:
     runs-on: ubuntu-latest
