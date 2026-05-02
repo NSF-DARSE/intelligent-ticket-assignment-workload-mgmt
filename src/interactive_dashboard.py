@@ -1166,7 +1166,6 @@ def render_top_recommendation_panel(
         role_text = rec.get("employee_primary_skill_domain", "")
         open_tickets = int(rec.get("open_ticket_count", 0) or 0)
         score = float(rec.get("recommendation_score", 0.0) or 0.0)
-
         st.markdown(f"#### #{rank} Match — {employee_name}")
         meta_parts = [part for part in [role_text, f"{open_tickets} open tickets"] if str(part).strip()]
         if meta_parts:
@@ -1739,70 +1738,9 @@ def main() -> None:
             )
             st.plotly_chart(fig, use_container_width=True)
 
-    with ticket_board_tab:
-        st.subheader("Ticket Assignment Board")
-        st.caption("Only unassigned tickets appear on the left. Select a ticket to review its details and simulate assignment using the top 3 recommended technicians.")
-
-        unassigned_board = assignment_board[
-            assignment_board["current_assignee"].fillna("Unassigned") == "Unassigned"
-        ].copy()
-        selected_ticket_id = select_dispatch_ticket(unassigned_board)
-
-        board_kpi1, board_kpi2, board_kpi3, board_kpi4 = st.columns(4)
-        board_kpi1.metric("Unassigned Tickets", f"{len(unassigned_board):,}")
-        board_kpi2.metric("Assigned Open Tickets", f"{assigned_open_ticket_count:,}")
-        board_kpi3.metric("Open Tickets in View", f"{len(active_filtered):,}")
-        board_kpi4.metric("Tickets With Top-3", f"{tickets_with_recommendations:,}")
-
-        if unassigned_board.empty:
-            st.success("All open tickets currently have an assigned technician in the dashboard simulation.")
-        else:
-            filter_col1, filter_col2 = st.columns([2.2, 1.1])
-            with filter_col1:
-                search_term = st.text_input(
-                    "Search unassigned tickets",
-                    placeholder="Search tickets...",
-                    key="ticket_board_search",
-                )
-            with filter_col2:
-                priority_filter = st.selectbox(
-                    "Priority filter",
-                    ["All", "Critical", "High", "Medium", "Low"],
-                    key="ticket_board_priority_filter",
-                )
-
-            ticket_list_df = unassigned_board.copy()
-            if search_term:
-                search_text = search_term.strip().lower()
-                id_match = ticket_list_df["ticket_id"].astype(str).str.lower().str.contains(search_text)
-                title_match = ticket_list_df["ticket_title"].fillna("").astype(str).str.lower().str.contains(search_text)
-                ticket_list_df = ticket_list_df[id_match | title_match].copy()
-            if priority_filter != "All":
-                ticket_list_df = ticket_list_df[ticket_list_df["ticket_priority"] == priority_filter].copy()
-
-            selected_ticket_id = select_dispatch_ticket(ticket_list_df)
-            selected_ticket_row = build_selected_ticket_detail(active_filtered, selected_ticket_id)
-
-            left_panel, right_panel = st.columns([1.05, 2.0], gap="large")
-            with left_panel:
-                st.markdown("### Open Tickets")
-                st.caption(f"{len(ticket_list_df):,} pending")
-                render_dispatch_ticket_list(ticket_list_df)
-
-            with right_panel:
-                detail_col, recommendation_col = st.columns([1.15, 1.25], gap="large")
-                with detail_col:
-                    render_ticket_detail_panel(selected_ticket_row)
-                with recommendation_col:
-                    render_top_recommendation_panel(
-                        selected_ticket_id,
-                        unassigned_board,
-                        filtered_recommendation_rows,
-                    )
-
     with dispatcher_tab:
         st.subheader("Dispatcher View")
-        st.caption("This tab keeps the export-style board tables, while Ticket Assignment Board provides the interactive click-to-assign workflow.")
+        st.caption("Review unassigned tickets and assign them directly using the top 3 recommended employees.")
 
         dispatcher_board = assignment_board.copy()
         dispatcher_unassigned_board = dispatcher_board[
@@ -1817,17 +1755,48 @@ def main() -> None:
         dispatcher_kpi2.metric("Assigned Tickets", f"{len(dispatcher_assigned_board):,}")
         dispatcher_kpi3.metric("Tickets With Top-3", f"{dispatcher_board['ticket_id'].nunique():,}")
 
-        st.markdown("### Unassigned Ticket Export View")
-        dispatcher_unassigned_view = slice_or_empty(
-            dispatcher_unassigned_board,
-            ["ticket_id", "ticket_title", "ticket_priority", "top_1_technician", "top_2_technician", "top_3_technician"],
-        )
+        st.markdown("### Unassigned Ticket Assignment Queue")
+        dispatcher_unassigned_view = slice_or_empty(dispatcher_unassigned_board, UNASSIGNED_BOARD_COLUMNS)
         dataframe_download(
             "Download Dispatcher Unassigned Ticket List",
             dispatcher_unassigned_view,
             "dispatcher_unassigned_tickets.csv",
         )
-        st.dataframe(dispatcher_unassigned_view, use_container_width=True, hide_index=True)
+
+        if dispatcher_unassigned_board.empty:
+            st.success("There are no unassigned tickets in the current view.")
+        else:
+            header_cols = st.columns([1.1, 2.8, 1.0, 1.3, 1.3, 1.3])
+            header_cols[0].markdown("**Ticket ID**")
+            header_cols[1].markdown("**Ticket Name**")
+            header_cols[2].markdown("**Priority**")
+            header_cols[3].markdown("**Top 1**")
+            header_cols[4].markdown("**Top 2**")
+            header_cols[5].markdown("**Top 3**")
+
+            for _, row in dispatcher_unassigned_board.iterrows():
+                row_cols = st.columns([1.1, 2.8, 1.0, 1.3, 1.3, 1.3], vertical_alignment="center")
+                row_cols[0].write(str(row.get("ticket_id", "")))
+                row_cols[1].write(str(row.get("ticket_title", "")))
+                row_cols[2].write(str(row.get("ticket_priority", "")))
+
+                for rank, col in zip([1, 2, 3], row_cols[3:]):
+                    tech_name = row.get(f"top_{rank}_technician")
+                    disabled = pd.isna(tech_name) or str(tech_name).strip() == ""
+                    label = str(tech_name) if not disabled else f"No Rank {rank}"
+                    if col.button(
+                        label,
+                        key=f"dispatcher_assign_{row.get('ticket_id')}_{rank}",
+                        use_container_width=True,
+                        disabled=disabled,
+                    ):
+                        try:
+                            persist_dispatch_action(row, rank)
+                            load_data.clear()
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"Could not save simulated assignment: {exc}")
+                st.divider()
 
         st.markdown("### Assigned Ticket Export View")
         dispatcher_assigned_view = slice_or_empty(
@@ -1840,6 +1809,108 @@ def main() -> None:
             "dispatcher_assigned_tickets.csv",
         )
         st.dataframe(dispatcher_assigned_view, use_container_width=True, hide_index=True)
+
+    with ticket_board_tab:
+        st.subheader("Open Ticket Recommendation Board")
+        st.caption(
+            "One row per open ticket showing the current assigned technician and the top 3 recommended technicians from the PostgreSQL-backed recommendation output."
+        )
+        board_kpi1, board_kpi2, board_kpi3, board_kpi4 = st.columns(4)
+        board_kpi1.metric("Open Tickets in View", f"{len(active_filtered):,}")
+        board_kpi2.metric("Currently Assigned", f"{assigned_open_ticket_count:,}")
+        board_kpi3.metric("Currently Unassigned", f"{unassigned_open_ticket_count:,}")
+        board_kpi4.metric("Tickets With Top-3", f"{tickets_with_recommendations:,}")
+
+        if not active_filtered.empty:
+            assignee_summary = (
+                active_filtered["primary_resource"]
+                .fillna("Unassigned")
+                .value_counts()
+                .reset_index()
+            )
+            assignee_summary.columns = ["Current Assignee", "Open Tickets"]
+            fig = px.bar(
+                assignee_summary,
+                x="Current Assignee",
+                y="Open Tickets",
+                color="Open Tickets",
+                title="Open Tickets by Current Assigned Technician",
+            )
+            fig.update_traces(
+                text=assignee_summary["Open Tickets"],
+                textposition="outside",
+                cliponaxis=False,
+            )
+            fig.update_layout(xaxis_title="", yaxis_title="Open Tickets")
+            st.plotly_chart(fig, use_container_width=True)
+
+        if not filtered_recommendation_rows.empty:
+            st.subheader("Recommended Technician Workload Distribution")
+            rec_workload = (
+                filtered_recommendation_rows.groupby(["recommended_technician", "recommendation_rank"])
+                .agg(
+                    recommended_ticket_count=("ticket_id", "nunique"),
+                    avg_recommendation_score=("recommendation_score", "mean"),
+                )
+                .reset_index()
+            )
+            rec_workload["recommendation_rank"] = "Rank " + rec_workload["recommendation_rank"].astype(str)
+            rec_workload["avg_recommendation_score"] = safe_round(rec_workload["avg_recommendation_score"], 4)
+
+            rec_col1, rec_col2 = st.columns(2)
+            with rec_col1:
+                fig = px.bar(
+                    rec_workload,
+                    x="recommended_technician",
+                    y="recommended_ticket_count",
+                    color="recommendation_rank",
+                    barmode="stack",
+                    title="Top-3 Recommendation Load by Technician",
+                )
+                fig.update_traces(
+                    texttemplate="%{y}",
+                    textposition="inside",
+                )
+                fig.update_layout(xaxis_title="Recommended Technician", yaxis_title="Recommended Open Tickets")
+                st.plotly_chart(fig, use_container_width=True)
+
+            with rec_col2:
+                top1_load = (
+                    filtered_recommendation_rows[filtered_recommendation_rows["recommendation_rank"] == 1]
+                    .groupby("recommended_technician")
+                    .agg(
+                        top1_recommended_tickets=("ticket_id", "nunique"),
+                        avg_top1_score=("recommendation_score", "mean"),
+                    )
+                    .reset_index()
+                    .sort_values("top1_recommended_tickets", ascending=False)
+                )
+                top1_load["avg_top1_score"] = safe_round(top1_load["avg_top1_score"], 4)
+                fig = px.bar(
+                    top1_load,
+                    x="recommended_technician",
+                    y="top1_recommended_tickets",
+                    color="avg_top1_score",
+                    title="Rank-1 Recommendation Load by Technician",
+                )
+                fig.update_traces(
+                    text=top1_load["top1_recommended_tickets"],
+                    textposition="outside",
+                    cliponaxis=False,
+                )
+                fig.update_layout(xaxis_title="Recommended Technician", yaxis_title="Rank-1 Open Tickets")
+                st.plotly_chart(fig, use_container_width=True)
+
+        dataframe_download(
+            "Download Ticket Recommendation Board",
+            ticket_recommendation_board,
+            "ticket_recommendation_board.csv",
+        )
+        board_display = ticket_recommendation_board.sort_values(
+            ["ticket_priority", "ticket_id"],
+            ascending=[True, True],
+        )
+        st.dataframe(board_display, use_container_width=True, hide_index=True)
 
 if __name__ == "__main__":
     main()
