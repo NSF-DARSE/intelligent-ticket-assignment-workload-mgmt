@@ -1,36 +1,45 @@
 # Release Notes
 
-## Version 1.0.0
+## Current Working Configuration
 
-### Summary
-
-Version 1.0.0 delivers the first full working release of the Intelligent Ticket Assignment & Workload Management project. The release includes the production-style project flow from raw Autotask ticket ingestion through technician recommendation, PostgreSQL output loading, and interactive Streamlit reporting.
+The current project state delivers a complete ticket recommendation workflow from Autotask ingestion through PostgreSQL-backed dashboard reporting.
 
 ### End-User Highlights
-- Top-3 technician recommendation engine for open tickets
+
+- Top-3 technician recommendation engine for active tickets
 - Skill-aware matching between tickets and employees
-- Hybrid NLP similarity using TF-IDF, BM25, and MiniLM embeddings
+- Hybrid text similarity using **BM25 + MiniLM**
 - Workload-aware balancing so one technician is not overloaded unfairly
-- SLA and complexity-aware recommendation logic
-- Interactive Streamlit dashboard for operations review and dispatch simulation
+- SLA-aware and complexity-aware recommendation logic
+- Streamlit dashboard for review and dispatch simulation
+
+### Important Model Update
+
+The active project configuration no longer uses:
+- TF-IDF retrieval
+- the standalone time-estimation model
+
+Instead, the recommendation pipeline now uses:
+- BM25 lexical retrieval
+- MiniLM semantic similarity
+- historical resolution-hours hints derived from the top similar completed tickets
 
 ### Installation Guide
 
 1. Create a virtual environment.
 2. Install dependencies from [requirements.txt](requirements.txt).
 3. Copy [.env.example](.env.example) to `.env` and fill in the required values.
-4. Run [main.py](main.py) commands or the individual pipeline scripts listed in [README.md](README.md).
+4. Run [main.py](main.py) commands or the individual scripts listed in [README.md](README.md).
 
-### API / Behavior Notes
+### Current Command Surface
+
 - `main.py status` reports the presence of core project outputs.
-- `main.py pipeline` runs the sandbox-backed end-to-end pipeline.
+- `main.py pipeline` runs the supported end-to-end pipeline.
 - `main.py dashboard` launches the Streamlit interface.
-- `main.py load-postgres` refreshes PostgreSQL output tables from local generated files.
+- `main.py load-postgres` refreshes PostgreSQL output tables from generated local files.
 
 ### Known Issues
-- Azure PostgreSQL setup still depends on the correct network/firewall configuration outside the repo.
-- Some pipeline outputs are intentionally local-only and are not committed to Git.
-- Streamlit dashboard logic is functional but still concentrated in a large single file, so future refactoring is recommended.
 
-### Upgrade Impact
-- This is the first formal release candidate for the repo. There are no prior tagged public releases to migrate from.
+- Azure PostgreSQL access still depends on firewall and network configuration outside the repo.
+- The Streamlit dashboard is functional but still concentrated in one large file.
+- Some generated outputs remain local-only by design and are not committed to Git.

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Score ticket complexity from historical effort, SLA pressure, and novelty."""
+
 import json
 from pathlib import Path
 
@@ -8,7 +10,6 @@ import pandas as pd
 
 
 FEATURE_DATA_PATH = Path("data/Feature_Engineered/autotask_feature_engineered.csv")
-OPEN_TIME_ESTIMATION_PATH = Path("data/Time_Estimation/time_estimation_open_ticket_predictions.csv")
 NLP_SUMMARY_PATH = Path("data/NLP/ticket_similarity_summary.csv")
 OUTPUT_DIR = Path("data/Complexity")
 COMPLEXITY_OUTPUT_PATH = OUTPUT_DIR / "autotask_complexity_scored.csv"
@@ -23,11 +24,10 @@ SLA_COMPLEXITY_MAP = {
 }
 
 
-def load_inputs() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def load_inputs() -> tuple[pd.DataFrame, pd.DataFrame]:
     feature_df = pd.read_csv(FEATURE_DATA_PATH)
-    time_df = pd.read_csv(OPEN_TIME_ESTIMATION_PATH) if OPEN_TIME_ESTIMATION_PATH.exists() else pd.DataFrame()
     nlp_df = pd.read_csv(NLP_SUMMARY_PATH) if NLP_SUMMARY_PATH.exists() else pd.DataFrame()
-    return feature_df, time_df, nlp_df
+    return feature_df, nlp_df
 
 
 def normalize_series(series: pd.Series) -> pd.Series:
@@ -57,19 +57,15 @@ def build_keyword_score(df: pd.DataFrame) -> pd.Series:
     return score.clip(0, 1)
 
 
-def add_effort_signal(df: pd.DataFrame, open_time_df: pd.DataFrame) -> pd.DataFrame:
+def add_effort_signal(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
-    if not open_time_df.empty:
-        keep_cols = ["ticket_id", "predicted_resolution_hours_final"]
-        df = df.merge(open_time_df[keep_cols], on="ticket_id", how="left")
-    else:
-        df["predicted_resolution_hours_final"] = np.nan
-
+    # Completed tickets use actual resolution hours; active tickets fall back to
+    # the best available estimate from the engineered feature set.
     df["effective_resolution_hours_for_complexity"] = np.where(
         df["resolution_hours"].notna(),
         df["resolution_hours"],
-        df["predicted_resolution_hours_final"],
+        df["estimated_hours_clean"].fillna(df["estimated_hours"]),
     )
 
     df["effort_complexity_score"] = normalize_series(df["effective_resolution_hours_for_complexity"].fillna(
@@ -150,8 +146,8 @@ def build_reason(row: pd.Series) -> str:
 def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    feature_df, open_time_df, nlp_df = load_inputs()
-    scored = add_effort_signal(feature_df, open_time_df)
+    feature_df, nlp_df = load_inputs()
+    scored = add_effort_signal(feature_df)
     scored = add_nlp_signal(scored, nlp_df)
     scored = add_complexity_score(scored)
     scored["complexity_reason"] = scored.apply(build_reason, axis=1)

@@ -32,10 +32,45 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 FEATURE_PATH = BASE_DIR / "data" / "Feature_Engineered" / "autotask_feature_engineered.csv"
 COMPLEXITY_PATH = BASE_DIR / "data" / "Complexity" / "autotask_complexity_scored.csv"
 RECOMMENDATIONS_PATH = BASE_DIR / "data" / "Recommendations" / "assignment_recommendations.csv"
-TIME_PATH = BASE_DIR / "data" / "Time_Estimation" / "time_estimation_open_ticket_predictions.csv"
 NLP_PATH = BASE_DIR / "data" / "NLP" / "ticket_similarity_summary.csv"
 EMPLOYEE_SKILLS_PROFILE_PATH = BASE_DIR / "data" / "Feature_Engineered" / "employee_skills_profile.csv"
 DISPATCH_TABLE_NAME = "autotask_dashboard_dispatch_actions"
+
+TICKET_RECOMMENDATION_COLUMNS = [
+    "ticket_id",
+    "ticket_title",
+    "ticket_type",
+    "ticket_priority",
+    "current_assignee",
+    "top_1_technician",
+    "top_2_technician",
+    "top_3_technician",
+]
+
+ASSIGNED_BOARD_COLUMNS = TICKET_RECOMMENDATION_COLUMNS.copy()
+
+UNASSIGNED_BOARD_COLUMNS = [
+    "ticket_id",
+    "ticket_title",
+    "ticket_priority",
+    "top_1_technician",
+    "top_2_technician",
+    "top_3_technician",
+]
+
+RECOMMENDATION_DETAIL_COLUMNS = [
+    "ticket_id",
+    "ticket_title",
+    "ticket_priority",
+    "ticket_sla_priority_class",
+    "ticket_complexity_class",
+    "recommended_employee_name",
+    "recommendation_score",
+    "skill_experience_score",
+    "skill_alignment_score",
+    "matched_skill_count",
+    "rationale",
+]
 
 BRAND_COLORS = {
     "cream": "#f5f5f2",
@@ -208,12 +243,18 @@ def safe_round(series: pd.Series, digits: int = 2) -> pd.Series:
     return pd.to_numeric(series, errors="coerce").round(digits)
 
 
+def slice_or_empty(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    available_columns = [col for col in columns if col in df.columns]
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+    return df[available_columns].copy()
+
+
 @st.cache_data(ttl=30)
-def load_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def load_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     feature_df = load_table_with_fallback("autotask_feature_engineered", FEATURE_PATH)
     complexity_df = load_table_with_fallback("autotask_complexity_scored", COMPLEXITY_PATH)
     recommendations_df = load_table_with_fallback("autotask_assignment_recommendations", RECOMMENDATIONS_PATH)
-    time_df = load_table_with_fallback("autotask_time_estimation_open_ticket_predictions", TIME_PATH)
     nlp_df = load_table_with_fallback("autotask_ticket_similarity_summary", NLP_PATH)
     employee_skills_df = load_table_with_fallback("autotask_employee_skills_profile", EMPLOYEE_SKILLS_PROFILE_PATH)
 
@@ -223,17 +264,12 @@ def load_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame,
         how="left",
     )
     feature_df = feature_df.merge(
-        time_df[["ticket_id", "predicted_resolution_hours_final"]],
-        on="ticket_id",
-        how="left",
-    )
-    feature_df = feature_df.merge(
         nlp_df[["ticket_id", "top_similarity_score", "estimated_resolution_hours_nlp"]],
         on="ticket_id",
         how="left",
     )
 
-    return feature_df, complexity_df, recommendations_df, time_df, nlp_df, employee_skills_df
+    return feature_df, complexity_df, recommendations_df, nlp_df, employee_skills_df
 
 
 def load_table_with_fallback(table_name: str, csv_path: Path) -> pd.DataFrame:
@@ -412,7 +448,6 @@ def recompute_remaining_recommendations(
             "sla_priority_class": row.get("ticket_sla_priority_class"),
             "complexity_score": row.get("ticket_complexity_score", ticket_context.get("complexity_score")),
             "complexity_class": row.get("ticket_complexity_class", ticket_context.get("complexity_class")),
-            "predicted_resolution_hours_final": ticket_context.get("predicted_resolution_hours_final"),
             "estimated_resolution_hours_nlp": ticket_context.get("estimated_resolution_hours_nlp"),
             "estimated_hours_clean": ticket_context.get("estimated_hours_clean"),
             "estimated_hours": ticket_context.get("estimated_hours"),
@@ -721,6 +756,92 @@ def build_ticket_recommendation_board(recommendations_df: pd.DataFrame) -> pd.Da
     return board
 
 
+def build_open_ticket_assignment_board(
+    active_df: pd.DataFrame,
+    recommendation_board: pd.DataFrame,
+) -> pd.DataFrame:
+    base_columns = [
+        "ticket_id",
+        "title",
+        "priority",
+        "issue_type",
+        "primary_resource_display",
+        "status",
+    ]
+    available_base_columns = [col for col in base_columns if col in active_df.columns]
+    if not available_base_columns:
+        return recommendation_board.copy()
+
+    base_board = (
+        active_df[available_base_columns]
+        .drop_duplicates(subset=["ticket_id"])
+        .rename(
+            columns={
+                "title": "ticket_title",
+                "priority": "ticket_priority",
+                "issue_type": "ticket_type",
+                "primary_resource_display": "current_assignee",
+                "status": "ticket_status",
+            }
+        )
+        .copy()
+    )
+
+    recommendation_columns = [
+        "ticket_id",
+        "current_assignee",
+        "top_1_technician",
+        "top_1_technician_key",
+        "top_1_score",
+        "top_2_technician",
+        "top_2_technician_key",
+        "top_2_score",
+        "top_3_technician",
+        "top_3_technician_key",
+        "top_3_score",
+    ]
+    available_recommendation_columns = [
+        col for col in recommendation_columns if col in recommendation_board.columns
+    ]
+    recommendation_view = (
+        recommendation_board[available_recommendation_columns].drop_duplicates(subset=["ticket_id"]).copy()
+        if available_recommendation_columns
+        else pd.DataFrame(columns=recommendation_columns)
+    )
+
+    if "current_assignee" in recommendation_view.columns:
+        recommendation_view = recommendation_view.rename(
+            columns={"current_assignee": "recommended_current_assignee"}
+        )
+    else:
+        recommendation_view["recommended_current_assignee"] = pd.NA
+
+    board = base_board.merge(recommendation_view, on="ticket_id", how="left")
+    board["current_assignee"] = (
+        board["current_assignee"]
+        .replace("", pd.NA)
+        .fillna(board["recommended_current_assignee"])
+        .fillna("Unassigned")
+    )
+    board = board.drop(columns=["recommended_current_assignee"], errors="ignore")
+
+    for column in [
+        "top_1_technician",
+        "top_1_technician_key",
+        "top_1_score",
+        "top_2_technician",
+        "top_2_technician_key",
+        "top_2_score",
+        "top_3_technician",
+        "top_3_technician_key",
+        "top_3_score",
+    ]:
+        if column not in board.columns:
+            board[column] = pd.NA
+
+    return board.sort_values(["ticket_priority", "ticket_id"], ascending=[True, True]).reset_index(drop=True)
+
+
 def dataframe_download(label: str, df: pd.DataFrame, file_name: str) -> None:
     st.download_button(
         label=label,
@@ -939,6 +1060,143 @@ def build_recommendation_summary_table(recommendations_df: pd.DataFrame) -> pd.D
     return summary
 
 
+def select_dispatch_ticket(unassigned_board: pd.DataFrame) -> str | None:
+    if "selected_dispatch_ticket_id" not in st.session_state:
+        st.session_state["selected_dispatch_ticket_id"] = None
+
+    valid_ticket_ids = set(unassigned_board["ticket_id"].astype(str)) if not unassigned_board.empty else set()
+    selected_ticket_id = st.session_state.get("selected_dispatch_ticket_id")
+
+    if selected_ticket_id not in valid_ticket_ids:
+        st.session_state["selected_dispatch_ticket_id"] = next(iter(valid_ticket_ids), None)
+
+    return st.session_state.get("selected_dispatch_ticket_id")
+
+
+def set_dispatch_ticket(ticket_id: str) -> None:
+    st.session_state["selected_dispatch_ticket_id"] = str(ticket_id)
+
+
+def render_dispatch_ticket_list(unassigned_board: pd.DataFrame) -> None:
+    for row in unassigned_board.itertuples(index=False):
+        ticket_id = str(row.ticket_id)
+        selected = st.session_state.get("selected_dispatch_ticket_id") == ticket_id
+        button_label = f"{ticket_id} | {row.ticket_title}"
+        if st.button(
+            button_label,
+            key=f"ticket_pick_{ticket_id}",
+            use_container_width=True,
+            type="primary" if selected else "secondary",
+            on_click=set_dispatch_ticket,
+            args=(ticket_id,),
+        ):
+            pass
+
+
+def build_selected_ticket_detail(active_df: pd.DataFrame, ticket_id: str | None) -> pd.Series | None:
+    if not ticket_id or active_df.empty:
+        return None
+
+    selected_rows = active_df[active_df["ticket_id"].astype(str) == str(ticket_id)]
+    if selected_rows.empty:
+        return None
+
+    return selected_rows.iloc[0]
+
+
+def render_ticket_detail_panel(ticket_row: pd.Series | None) -> None:
+    st.markdown("### Ticket Details")
+    if ticket_row is None:
+        st.info("Select an unassigned ticket to view its details.")
+        return
+
+    detail_fields = [
+        ("Ticket ID", ticket_row.get("ticket_id")),
+        ("Priority", ticket_row.get("priority")),
+        ("Category", ticket_row.get("issue_type_group", ticket_row.get("queue_group", "Missing"))),
+        ("Issue Type", ticket_row.get("issue_type")),
+        ("SLA Status", ticket_row.get("sla_priority_class")),
+        ("Complexity", ticket_row.get("complexity_class")),
+        ("Account", ticket_row.get("account")),
+        ("Created", ticket_row.get("created_at")),
+    ]
+
+    detail_df = pd.DataFrame(detail_fields, columns=["Field", "Value"])
+    st.dataframe(detail_df, use_container_width=True, hide_index=True)
+
+    description = (
+        ticket_row.get("description")
+        or ticket_row.get("ticket_text")
+        or "No ticket description is available for the selected record."
+    )
+    st.markdown("#### Description")
+    st.write(str(description))
+
+
+def render_top_recommendation_panel(
+    ticket_id: str | None,
+    unassigned_board: pd.DataFrame,
+    recommendation_rows: pd.DataFrame,
+) -> None:
+    st.markdown("### Top 3 Recommended Technicians")
+
+    if not ticket_id:
+        st.info("Select an unassigned ticket to review the top recommended technicians.")
+        return
+
+    board_rows = unassigned_board[unassigned_board["ticket_id"].astype(str) == str(ticket_id)]
+    if board_rows.empty:
+        st.info("No unassigned ticket is selected.")
+        return
+
+    board_row = board_rows.iloc[0]
+    ticket_recommendations = (
+        recommendation_rows[recommendation_rows["ticket_id"].astype(str) == str(ticket_id)]
+        .sort_values("recommendation_rank")
+        .copy()
+    )
+
+    if ticket_recommendations.empty:
+        st.info("No recommendation rows are available for this ticket.")
+        return
+
+    for _, rec in ticket_recommendations.iterrows():
+        rank = int(rec["recommendation_rank"])
+        employee_name = rec.get("recommended_employee_name", rec.get("recommended_technician", "Unknown"))
+        role_text = rec.get("employee_primary_skill_domain", "")
+        open_tickets = int(rec.get("open_ticket_count", 0) or 0)
+        score = float(rec.get("recommendation_score", 0.0) or 0.0)
+
+        st.markdown(f"#### #{rank} Match — {employee_name}")
+        meta_parts = [part for part in [role_text, f"{open_tickets} open tickets"] if str(part).strip()]
+        if meta_parts:
+            st.caption(" · ".join(meta_parts))
+
+        metric_col1, metric_col2 = st.columns(2)
+        with metric_col1:
+            st.metric("Final Score", f"{score:.2f}")
+            st.progress(max(0.0, min(1.0, score)))
+        with metric_col2:
+            st.metric("Skill Matches", int(rec.get("matched_skill_count", 0) or 0))
+            st.metric("Workload Availability", f"{float(rec.get('workload_count_score', 0.0) or 0.0):.2f}")
+
+        if st.button(
+            f"Assign Ticket to {employee_name}",
+            key=f"assign_ticket_{ticket_id}_{rank}",
+            use_container_width=True,
+        ):
+            try:
+                persist_dispatch_action(board_row, rank)
+                load_data.clear()
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Could not save simulated assignment: {exc}")
+
+        if rec.get("rationale"):
+            with st.expander("Why this technician?"):
+                st.write(str(rec["rationale"]))
+
+
 def main() -> None:
     st.set_page_config(
         page_title="Autotask AI Dashboard",
@@ -949,7 +1207,7 @@ def main() -> None:
 
     apply_theme()
 
-    feature_df, _, recommendations_df, _, _, employee_skills_df = load_data()
+    feature_df, _, recommendations_df, _, employee_skills_df = load_data()
     feature_df, recommendations_df = apply_display_names(feature_df, recommendations_df, employee_skills_df)
     if "summary_detail_key" not in st.session_state:
         st.session_state["summary_detail_key"] = None
@@ -990,22 +1248,9 @@ def main() -> None:
     filtered_top_recommendations = top_recommendations.copy()
     filtered_recommendation_rows = simulated_recommendation_rows.copy()
     ticket_recommendation_board = build_ticket_recommendation_board(simulated_recommendation_rows)
+    assignment_board = build_open_ticket_assignment_board(active_filtered, ticket_recommendation_board)
     employee_summary = build_employee_summary(feature_df, simulated_recommendation_rows, employee_skills_df)
     attention_table = build_attention_table(active_filtered)
-
-    insight_col1, insight_col2, insight_col3 = st.columns(3)
-    with insight_col1:
-        busiest = active_filtered["primary_resource_display"].fillna("Unassigned").value_counts()
-        busiest_text = busiest.index[0] if not busiest.empty else "N/A"
-        st.info(f"Most open tickets assigned to: `{busiest_text}`")
-    with insight_col2:
-        highest_sla = active_filtered["sla_priority_class"].fillna("Missing").value_counts()
-        highest_sla_text = highest_sla.index[0] if not highest_sla.empty else "N/A"
-        st.info(f"Most common filtered SLA class: `{highest_sla_text}`")
-    with insight_col3:
-        highest_complexity = active_filtered["complexity_class"].fillna("Missing").value_counts()
-        highest_complexity_text = highest_complexity.index[0] if not highest_complexity.empty else "N/A"
-        st.info(f"Most common filtered complexity: `{highest_complexity_text}`")
 
     open_ticket_count = int(feature_df["is_active_ticket"].sum())
     assigned_open_ticket_count = int(active_filtered["primary_resource"].notna().sum())
@@ -1041,11 +1286,25 @@ def main() -> None:
         render_summary_detail_page(label, detail_df, key_prefix, detail_recommendations)
         return
 
-    tab1, tab2, tab3, tab4 = st.tabs(
-        ["Overview", "Employees", "Recommendations", "Ticket Assignment Board"]
+    insight_col1, insight_col2, insight_col3 = st.columns(3)
+    with insight_col1:
+        busiest = active_filtered["primary_resource_display"].fillna("Unassigned").value_counts()
+        busiest_text = busiest.index[0] if not busiest.empty else "N/A"
+        st.info(f"Most open tickets assigned to: `{busiest_text}`")
+    with insight_col2:
+        highest_sla = active_filtered["sla_priority_class"].fillna("Missing").value_counts()
+        highest_sla_text = highest_sla.index[0] if not highest_sla.empty else "N/A"
+        st.info(f"Most common filtered SLA class: `{highest_sla_text}`")
+    with insight_col3:
+        highest_complexity = active_filtered["complexity_class"].fillna("Missing").value_counts()
+        highest_complexity_text = highest_complexity.index[0] if not highest_complexity.empty else "N/A"
+        st.info(f"Most common filtered complexity: `{highest_complexity_text}`")
+
+    ticket_board_tab, dispatcher_tab, overview_tab, employees_tab, recommendations_tab = st.tabs(
+        ["Ticket Assignment Board", "Dispatcher View", "Overview", "Employees", "Recommendations"]
     )
 
-    with tab1:
+    with overview_tab:
         col1, col2 = st.columns(2)
         with col1:
             sla_counts = active_filtered["sla_priority_class"].fillna("Missing").value_counts().reset_index()
@@ -1161,7 +1420,7 @@ def main() -> None:
         dataframe_download("Download Attention Table", attention_display, "attention_tickets.csv")
         st.dataframe(attention_display, use_container_width=True, hide_index=True)
 
-    with tab2:
+    with employees_tab:
         st.subheader("Employee Profiles")
         st.caption("Pick an employee to open their profile, ticket summary, completed tickets, and active tickets.")
 
@@ -1336,7 +1595,7 @@ def main() -> None:
         else:
             st.info("No employee profiles are available in the current dataset.")
 
-    with tab3:
+    with recommendations_tab:
         st.subheader("Recommendation Summary")
         recommendation_board_view = ticket_recommendation_board[
             [
@@ -1480,208 +1739,107 @@ def main() -> None:
             )
             st.plotly_chart(fig, use_container_width=True)
 
-    with tab4:
-        st.subheader("Open Ticket Recommendation Board")
-        st.caption("Assigned tickets are separated from unassigned tickets. Use the action buttons in the unassigned section to simulate dispatcher assignments and refresh the remaining recommendations.")
+    with ticket_board_tab:
+        st.subheader("Ticket Assignment Board")
+        st.caption("Only unassigned tickets appear on the left. Select a ticket to review its details and simulate assignment using the top 3 recommended technicians.")
+
+        unassigned_board = assignment_board[
+            assignment_board["current_assignee"].fillna("Unassigned") == "Unassigned"
+        ].copy()
+        selected_ticket_id = select_dispatch_ticket(unassigned_board)
+
         board_kpi1, board_kpi2, board_kpi3, board_kpi4 = st.columns(4)
-        board_kpi1.metric("Open Tickets in View", f"{len(active_filtered):,}")
-        board_kpi2.metric("Currently Assigned", f"{assigned_open_ticket_count:,}")
-        board_kpi3.metric("Currently Unassigned", f"{unassigned_open_ticket_count:,}")
+        board_kpi1.metric("Unassigned Tickets", f"{len(unassigned_board):,}")
+        board_kpi2.metric("Assigned Open Tickets", f"{assigned_open_ticket_count:,}")
+        board_kpi3.metric("Open Tickets in View", f"{len(active_filtered):,}")
         board_kpi4.metric("Tickets With Top-3", f"{tickets_with_recommendations:,}")
 
-        if not active_filtered.empty:
-            assignee_summary = (
-                active_filtered["primary_resource_display"]
-                .fillna("Unassigned")
-                .value_counts()
-                .reset_index()
-            )
-            assignee_summary.columns = ["Current Assignee", "Open Tickets"]
-            fig = px.bar(
-                assignee_summary,
-                x="Current Assignee",
-                y="Open Tickets",
-                color="Open Tickets",
-                title="Open Tickets by Current Assigned Technician",
-            )
-            fig.update_traces(text=assignee_summary["Open Tickets"], textposition="inside")
-            fig.update_layout(xaxis_title="", yaxis_title="Open Tickets")
-            st.plotly_chart(fig, use_container_width=True)
-
-        if not filtered_recommendation_rows.empty:
-            st.subheader("Recommended Technician Workload Distribution")
-            rec_workload = (
-                filtered_recommendation_rows.groupby(["recommended_employee_name", "recommendation_rank"])
-                .agg(
-                    recommended_ticket_count=("ticket_id", "nunique"),
-                    avg_recommendation_score=("recommendation_score", "mean"),
-                )
-                .reset_index()
-            )
-            rec_workload["recommendation_rank"] = "Rank " + rec_workload["recommendation_rank"].astype(str)
-            rec_workload["avg_recommendation_score"] = safe_round(rec_workload["avg_recommendation_score"], 4)
-
-            rec_col1, rec_col2 = st.columns(2)
-            with rec_col1:
-                fig = px.bar(
-                    rec_workload,
-                    x="recommended_employee_name",
-                    y="recommended_ticket_count",
-                    color="recommendation_rank",
-                    barmode="stack",
-                    title="Top-3 Recommendation Load by Technician",
-                )
-                fig.update_traces(texttemplate="%{y}", textposition="inside")
-                fig.update_layout(xaxis_title="Recommended Technician", yaxis_title="Recommended Open Tickets")
-                st.plotly_chart(fig, use_container_width=True)
-
-            with rec_col2:
-                top1_load = (
-                    filtered_recommendation_rows[filtered_recommendation_rows["recommendation_rank"] == 1]
-                    .groupby("recommended_employee_name")
-                    .agg(
-                        top1_recommended_tickets=("ticket_id", "nunique"),
-                        avg_top1_score=("recommendation_score", "mean"),
-                    )
-                    .reset_index()
-                    .sort_values("top1_recommended_tickets", ascending=False)
-                )
-                top1_load["avg_top1_score"] = safe_round(top1_load["avg_top1_score"], 4)
-                fig = px.bar(
-                    top1_load,
-                    x="recommended_employee_name",
-                    y="top1_recommended_tickets",
-                    color="avg_top1_score",
-                    title="Rank-1 Recommendation Load by Technician",
-                )
-                fig.update_traces(text=top1_load["top1_recommended_tickets"], textposition="inside")
-                fig.update_layout(xaxis_title="Recommended Technician", yaxis_title="Rank-1 Open Tickets")
-                st.plotly_chart(fig, use_container_width=True)
-
-        dispatched_lookup = (
-            dispatch_actions_df[["ticket_id", "selected_rank", "assigned_at"]].copy()
-            if not dispatch_actions_df.empty
-            else pd.DataFrame(columns=["ticket_id", "selected_rank", "assigned_at"])
-        )
-        board_display = ticket_recommendation_board.sort_values(
-            ["ticket_priority", "ticket_id"],
-            ascending=[True, True],
-        ).copy()
-        if not dispatched_lookup.empty:
-            board_display = board_display.merge(
-                dispatched_lookup,
-                on="ticket_id",
-                how="left",
-            )
-        for column in ["selected_rank", "assigned_at"]:
-            if column not in board_display.columns:
-                board_display[column] = pd.NA
-
-        assigned_board = board_display[
-            board_display["current_assignee"].fillna("Unassigned") != "Unassigned"
-        ].copy()
-        unassigned_board = board_display[
-            board_display["current_assignee"].fillna("Unassigned") == "Unassigned"
-        ].copy()
-
-        st.markdown("### Assigned Tickets")
-        assigned_board_view = assigned_board[
-            [
-                "ticket_id",
-                "ticket_title",
-                "ticket_priority",
-                "current_assignee",
-                "top_1_technician",
-                "top_2_technician",
-                "top_3_technician",
-            ]
-        ].copy() if not assigned_board.empty else pd.DataFrame(
-            columns=[
-                "ticket_id",
-                "ticket_title",
-                "ticket_priority",
-                "current_assignee",
-                "top_1_technician",
-                "top_2_technician",
-                "top_3_technician",
-            ]
-        )
-        dataframe_download(
-            "Download Assigned Ticket Board",
-            assigned_board_view,
-            "assigned_ticket_board.csv",
-        )
-        st.dataframe(assigned_board_view, use_container_width=True, hide_index=True)
-
-        st.markdown("### Unassigned Tickets")
-        unassigned_board_view = unassigned_board[
-            [
-                "ticket_id",
-                "ticket_title",
-                "ticket_priority",
-                "top_1_technician",
-                "top_2_technician",
-                "top_3_technician",
-            ]
-        ].copy() if not unassigned_board.empty else pd.DataFrame(
-            columns=[
-                "ticket_id",
-                "ticket_title",
-                "ticket_priority",
-                "top_1_technician",
-                "top_2_technician",
-                "top_3_technician",
-            ]
-        )
-        dataframe_download(
-            "Download Unassigned Ticket Board",
-            unassigned_board_view,
-            "unassigned_ticket_board.csv",
-        )
-        st.dataframe(unassigned_board_view, use_container_width=True, hide_index=True)
-
-        st.markdown("### Dispatch Actions for Unassigned Tickets")
         if unassigned_board.empty:
             st.success("All open tickets currently have an assigned technician in the dashboard simulation.")
         else:
-            header_cols = st.columns([1.15, 2.3, 1.0, 1.2, 1.2, 1.2])
-            headers = ["Ticket ID", "Title", "Priority", "Top 1", "Top 2", "Top 3"]
-            for col, header in zip(header_cols, headers):
-                with col:
-                    st.markdown(f"**{header}**")
+            filter_col1, filter_col2 = st.columns([2.2, 1.1])
+            with filter_col1:
+                search_term = st.text_input(
+                    "Search unassigned tickets",
+                    placeholder="Search tickets...",
+                    key="ticket_board_search",
+                )
+            with filter_col2:
+                priority_filter = st.selectbox(
+                    "Priority filter",
+                    ["All", "Critical", "High", "Medium", "Low"],
+                    key="ticket_board_priority_filter",
+                )
 
-            for row in unassigned_board.itertuples(index=False):
-                row_cols = st.columns([1.15, 2.3, 1.0, 1.2, 1.2, 1.2])
-                with row_cols[0]:
-                    st.write(row.ticket_id)
-                with row_cols[1]:
-                    st.write(row.ticket_title)
-                with row_cols[2]:
-                    st.write(row.ticket_priority)
+            ticket_list_df = unassigned_board.copy()
+            if search_term:
+                search_text = search_term.strip().lower()
+                id_match = ticket_list_df["ticket_id"].astype(str).str.lower().str.contains(search_text)
+                title_match = ticket_list_df["ticket_title"].fillna("").astype(str).str.lower().str.contains(search_text)
+                ticket_list_df = ticket_list_df[id_match | title_match].copy()
+            if priority_filter != "All":
+                ticket_list_df = ticket_list_df[ticket_list_df["ticket_priority"] == priority_filter].copy()
 
-                button_specs = [
-                    (1, row.top_1_technician),
-                    (2, row.top_2_technician),
-                    (3, row.top_3_technician),
-                ]
+            selected_ticket_id = select_dispatch_ticket(ticket_list_df)
+            selected_ticket_row = build_selected_ticket_detail(active_filtered, selected_ticket_id)
 
-                for button_col, (rank, tech_name) in zip(row_cols[3:], button_specs):
-                    with button_col:
-                        disabled = pd.isna(tech_name)
-                        label = str(tech_name) if not disabled else "-"
-                        if st.button(
-                            label,
-                            key=f"dispatch_{row.ticket_id}_{rank}",
-                            use_container_width=True,
-                            disabled=disabled,
-                        ):
-                            try:
-                                persist_dispatch_action(pd.Series(row._asdict()), rank)
-                                load_data.clear()
-                                st.rerun()
-                            except Exception as exc:
-                                st.error(f"Could not save simulated assignment: {exc}")
-                st.divider()
+            left_panel, right_panel = st.columns([1.05, 2.0], gap="large")
+            with left_panel:
+                st.markdown("### Open Tickets")
+                st.caption(f"{len(ticket_list_df):,} pending")
+                render_dispatch_ticket_list(ticket_list_df)
+
+            with right_panel:
+                detail_col, recommendation_col = st.columns([1.15, 1.25], gap="large")
+                with detail_col:
+                    render_ticket_detail_panel(selected_ticket_row)
+                with recommendation_col:
+                    render_top_recommendation_panel(
+                        selected_ticket_id,
+                        unassigned_board,
+                        filtered_recommendation_rows,
+                    )
+
+    with dispatcher_tab:
+        st.subheader("Dispatcher View")
+        st.caption("This tab keeps the export-style board tables, while Ticket Assignment Board provides the interactive click-to-assign workflow.")
+
+        dispatcher_board = assignment_board.copy()
+        dispatcher_unassigned_board = dispatcher_board[
+            dispatcher_board["current_assignee"].fillna("Unassigned") == "Unassigned"
+        ].copy()
+        dispatcher_assigned_board = dispatcher_board[
+            dispatcher_board["current_assignee"].fillna("Unassigned") != "Unassigned"
+        ].copy()
+
+        dispatcher_kpi1, dispatcher_kpi2, dispatcher_kpi3 = st.columns(3)
+        dispatcher_kpi1.metric("Unassigned Tickets", f"{len(dispatcher_unassigned_board):,}")
+        dispatcher_kpi2.metric("Assigned Tickets", f"{len(dispatcher_assigned_board):,}")
+        dispatcher_kpi3.metric("Tickets With Top-3", f"{dispatcher_board['ticket_id'].nunique():,}")
+
+        st.markdown("### Unassigned Ticket Export View")
+        dispatcher_unassigned_view = slice_or_empty(
+            dispatcher_unassigned_board,
+            ["ticket_id", "ticket_title", "ticket_priority", "top_1_technician", "top_2_technician", "top_3_technician"],
+        )
+        dataframe_download(
+            "Download Dispatcher Unassigned Ticket List",
+            dispatcher_unassigned_view,
+            "dispatcher_unassigned_tickets.csv",
+        )
+        st.dataframe(dispatcher_unassigned_view, use_container_width=True, hide_index=True)
+
+        st.markdown("### Assigned Ticket Export View")
+        dispatcher_assigned_view = slice_or_empty(
+            dispatcher_assigned_board,
+            ["ticket_id", "ticket_title", "ticket_priority", "current_assignee", "top_1_technician", "top_2_technician", "top_3_technician"],
+        )
+        dataframe_download(
+            "Download Dispatcher Assigned Ticket List",
+            dispatcher_assigned_view,
+            "dispatcher_assigned_tickets.csv",
+        )
+        st.dataframe(dispatcher_assigned_view, use_container_width=True, hide_index=True)
 
 if __name__ == "__main__":
     main()

@@ -1,10 +1,18 @@
 TICKET ASSIGNMENT SCORING FORMULA
 
-1. Base Metrics
+1. Core Recommendation Components
 
 issue_type_skill_score
 - Formula: same_issue_type_tickets / total_completed_tickets
-- Purpose: measures technician experience with this ticket type
+- Purpose: measures technician experience with the same issue type
+
+skill_experience_score
+- Logic: combines employee skill alignment with issue-type experience
+- Purpose: rewards technicians whose formal skills and historical experience both fit the ticket
+
+bm25_text_expertise_score
+- Logic: mean hybrid text-match support from similar historical tickets completed by that technician
+- Purpose: rewards technicians with relevant lexical and semantic history on similar tickets
 
 queue_group_skill_score
 - Formula: same_queue_group_tickets / total_completed_tickets
@@ -16,44 +24,46 @@ account_familiarity_score
 
 workload_hours_score
 - Formula: inverse-normalized from open_estimated_hours
-- Purpose: favors technicians with lower current estimated workload
+- Purpose: favors technicians with lower current projected workload
 
 workload_count_score
 - Formula: inverse-normalized from open_ticket_count
 - Purpose: favors technicians with fewer current open tickets
 
 priority_balance_score
-- Logic: lower score when technician already has many urgent tickets
-- Purpose: prevents overload of high-priority work on one person
+- Logic: lowers the score when a technician already holds many urgent tickets
+- Purpose: prevents concentration of high-priority work on one person
 
 resolution_efficiency_score
 - Formula: inverse-normalized from avg_resolution_hours
 - Purpose: rewards historically faster technicians
 
 sla_pressure_score
-- Logic: lower score when technician already has many tickets of the same SLA pressure
+- Logic: lowers the score when a technician already has many tickets with similar SLA pressure
 - Purpose: balances SLA-sensitive workload
 
 sla_urgency_fit_score
-- Logic: combines urgency match and workload suitability
-- Purpose: matches urgent tickets to appropriate technicians
+- Logic: combines urgency fit and current workload suitability
+- Purpose: matches urgent tickets to technicians with the right capacity profile
 
 complexity_fit_score
-- Logic: based on ticket complexity vs technician workload
-- Purpose: ensures difficult tickets are given where capacity exists
+- Logic: compares ticket complexity with technician workload and capacity
+- Purpose: avoids assigning harder tickets where current workload is already stretched
 
-2. Base Recommendation Score
+2. Recommendation Weights
 
-Base Score =
-0.30 * issue_type_skill_score
-+ 0.10 * queue_group_skill_score
-+ 0.05 * account_familiarity_score
-+ 0.15 * workload_hours_score
-+ 0.15 * workload_count_score
-+ 0.10 * priority_balance_score
+Final Weighted Base Score =
+0.20 * issue_type_skill_score
++ 0.18 * skill_experience_score
++ 0.12 * bm25_text_expertise_score
++ 0.08 * queue_group_skill_score
++ 0.04 * account_familiarity_score
++ 0.12 * workload_hours_score
++ 0.12 * workload_count_score
++ 0.08 * priority_balance_score
 + 0.05 * resolution_efficiency_score
-+ 0.10 * sla_pressure_score
-+ 0.10 * sla_urgency_fit_score
++ 0.08 * sla_pressure_score
++ 0.08 * sla_urgency_fit_score
 + 0.10 * complexity_fit_score
 
 3. Adjustment Metrics
@@ -63,12 +73,12 @@ capacity_penalty_score
 - Purpose: prevents overloading one technician
 
 distribution_penalty_score
-- Logic: penalty when technician is already above the current average projected workload in this run
-- Purpose: improves fair distribution of recommendations
+- Logic: penalty when the technician is already above the current projected workload average
+- Purpose: improves fair distribution across the team
 
 new_technician_penalty_score
 - Logic: penalty for risky tickets or exceeding onboarding limits
-- Purpose: prevents new technicians from receiving unsafe assignments
+- Purpose: protects less-experienced technicians from unsafe assignments
 
 low_risk_senior_penalty_score
 - Logic: penalty for giving low-risk work to senior technicians
@@ -76,16 +86,16 @@ low_risk_senior_penalty_score
 
 new_technician_bonus_score
 - Logic: small bonus for safe low-risk assignments to newer technicians
-- Purpose: helps onboarding and balanced exposure
+- Purpose: improves onboarding and balanced exposure
 
 low_risk_new_tech_bonus_score
-- Logic: extra bonus for distributing low-risk tickets to low-history / less-used technicians
-- Purpose: improves workload spread
+- Logic: extra bonus for routing safe tickets to lower-history or less-used technicians
+- Purpose: spreads workload and learning opportunities more fairly
 
 4. Final Recommendation Score
 
 Final Score =
-Base Score
+Final Weighted Base Score
 - capacity_penalty_score
 - distribution_penalty_score
 - new_technician_penalty_score
@@ -107,9 +117,10 @@ New-tech top-1 cap block
 - Formula: Final Score = Final Score * 0.10
 - Purpose: prevents one new technician from receiving too many top-1 assignments
 
-6. Business Interpretation
+6. Text Similarity Layer
 
-- High-risk, high-SLA, high-complexity tickets stay closer to experienced technicians.
-- Low and medium-risk tickets can be redistributed more fairly.
-- New technicians get controlled exposure through safe tickets.
-- Workload balancing is handled both by current workload and projected recommendations during the same run.
+The active text retrieval model is:
+- BM25 = 40%
+- MiniLM = 60%
+
+This hybrid retrieval signal feeds the recommendation layer through historical text-expertise features rather than acting as the only decision factor.

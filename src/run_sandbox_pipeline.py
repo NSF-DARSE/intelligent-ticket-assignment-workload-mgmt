@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Run the end-to-end Autotask recommendation pipeline in the supported order."""
+
 import argparse
 import subprocess
 import sys
@@ -8,6 +10,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PYTHON_EXE = PROJECT_ROOT / "venv" / "Scripts" / "python.exe"
+SKILLS_SOURCE_PATH = PROJECT_ROOT / "Skillsdataset.csv"
 
 
 def parse_args() -> argparse.Namespace:
@@ -45,6 +48,11 @@ def main() -> None:
 
     if not PYTHON_EXE.exists():
         raise FileNotFoundError(f"Python executable not found at {PYTHON_EXE}")
+    if not SKILLS_SOURCE_PATH.exists():
+        raise FileNotFoundError(
+            f"Skill dataset not found at {SKILLS_SOURCE_PATH}. "
+            "Place Skillsdataset.csv in the project root before running the pipeline."
+        )
 
     fetch_command = [
         str(PYTHON_EXE),
@@ -67,10 +75,10 @@ def main() -> None:
         (fetch_command, "Fetch sandbox tickets"),
         ([str(PYTHON_EXE), "src/clean_ticket_data.py"], "Clean ticket data"),
         ([str(PYTHON_EXE), "src/feature_engineering.py"], "Build engineered features"),
+        ([str(PYTHON_EXE), "src/clean_employee_skills.py"], "Normalize employee skills"),
         ([str(PYTHON_EXE), "src/nlp_ticket_similarity.py"], "Compute NLP similarity"),
-        ([str(PYTHON_EXE), "src/time_estimation_model.py"], "Run time estimation"),
         ([str(PYTHON_EXE), "src/complexity_scoring.py"], "Score complexity"),
-        ([str(PYTHON_EXE), "src/assignment_scorer.py"], "Generate top-3 recommendations"),
+        ([str(PYTHON_EXE), "src/assignment_scorer.py"], "Generate workload-managed skill-aware recommendations"),
     ]
 
     if not args.skip_output_load:

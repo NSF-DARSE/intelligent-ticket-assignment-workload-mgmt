@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Generate workload-managed, skill-aware top-3 technician recommendations for active tickets."""
+
 import json
 from pathlib import Path
 
@@ -18,24 +20,27 @@ RECOMMENDATIONS_PATH = RECOMMENDATION_DIR / "assignment_recommendations.csv"
 SUMMARY_PATH = RECOMMENDATION_DIR / "recommendation_summary.json"
 
 TECHNICIAN_WEIGHTS = {
-    "issue_type_skill": 0.20,
-    "skill_experience": 0.18,
-    "bm25_text_expertise": 0.12,
-    "queue_group_skill": 0.08,
-    "account_familiarity": 0.04,
-    "workload_hours": 0.12,
-    "workload_count": 0.12,
-    "priority_balance": 0.08,
-    "resolution_efficiency": 0.05,
-    "sla_pressure": 0.08,
-    "sla_urgency_fit": 0.08,
-    "complexity_fit": 0.10,
+    "issue_type_skill": 0.18,
+    "skill_experience": 0.20,
+    "bm25_text_expertise": 0.28,
+    "queue_group_skill": 0.05,
+    "account_familiarity": 0.02,
+    "workload_hours": 0.04,
+    "workload_count": 0.04,
+    "priority_balance": 0.03,
+    "resolution_efficiency": 0.04,
+    "sla_pressure": 0.03,
+    "sla_urgency_fit": 0.04,
+    "complexity_fit": 0.05,
 }
 
 SOFT_TICKET_CAP = 20
 CAPACITY_HOUR_CAP = 40.0
 NEW_TECH_COMPLETED_THRESHOLD = 15
 NEW_TECH_TOP1_CAP = 5
+MIN_COMPLETED_HISTORY_FOR_RECOMMENDATION = 5
+MIN_TEXT_MATCH_SCORE_FOR_LOW_HISTORY = 0.35
+MIN_SKILL_ALIGNMENT_FOR_LOW_HISTORY = 0.60
 TECHNICIAN_KEY_ALIASES = {
     "ajohson": "ajohnson",
 }
@@ -204,12 +209,12 @@ def recompute_workload_scores(workload_lookup: dict[str, dict]) -> None:
 
 
 def projected_effort_hours(ticket: pd.Series) -> float:
-    for field in ["predicted_resolution_hours_final", "estimated_resolution_hours_nlp", "estimated_hours_clean", "estimated_hours"]:
+    for field in ["estimated_resolution_hours_nlp", "estimated_hours_clean", "estimated_hours"]:
         value = ticket.get(field)
         if pd.notna(value):
             value = float(value)
             if value > 0:
-                if field.startswith("predicted_resolution_hours") or field == "estimated_resolution_hours_nlp":
+                if field == "estimated_resolution_hours_nlp":
                     return min(value, 24.0)
                 return value
     return 2.0
@@ -272,6 +277,8 @@ def build_text_expertise_lookup(matches_df: pd.DataFrame) -> dict[tuple[str, str
     if matches_df.empty or "matched_completed_by" not in matches_df.columns:
         return {}
 
+    # Prefer the explicit hybrid text score when available so downstream scoring
+    # stays aligned with the BM25 + MiniLM similarity pipeline.
     score_column = "hybrid_text_score" if "hybrid_text_score" in matches_df.columns else "similarity_score"
     matches = matches_df.copy()
     matches[score_column] = pd.to_numeric(matches[score_column], errors="coerce").fillna(0.0)
@@ -431,6 +438,26 @@ def compute_skill_alignment(ticket: pd.Series, technician: str, skill_lookup: di
         "skill_role": technician_skills.get("role", ""),
         "skill_primary_domain": technician_skills.get("primary_skill_domain", ""),
     }
+
+
+def is_eligible_technician_candidate(tech_history: dict, text_expertise: dict, skill_alignment: dict) -> bool:
+    completed_count = int(tech_history.get("completed_ticket_count", 0))
+    if completed_count >= MIN_COMPLETED_HISTORY_FOR_RECOMMENDATION:
+        return True
+
+    if (
+        int(text_expertise.get("text_match_count", 0)) >= 1
+        and float(text_expertise.get("best_text_match_score", 0.0)) >= MIN_TEXT_MATCH_SCORE_FOR_LOW_HISTORY
+    ):
+        return True
+
+    if (
+        int(skill_alignment.get("matched_skill_count", 0)) >= 2
+        and float(skill_alignment.get("skill_alignment_score", 0.0)) >= MIN_SKILL_ALIGNMENT_FOR_LOW_HISTORY
+    ):
+        return True
+
+    return False
 
 
 def compute_skill_score(ticket: pd.Series, technician: str, completed: pd.DataFrame) -> dict:
@@ -690,6 +717,8 @@ def recommend_assignments(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame,
                     "best_text_match_rank": np.nan,
                 },
             )
+            if not is_eligible_technician_candidate(tech_history, text_expertise, skill_alignment):
+                continue
             balance_score = priority_balance_score(ticket, pd.Series(tech_workload))
             sla_pressure = sla_pressure_score(ticket, pd.Series(tech_workload))
             sla_urgency_fit = sla_urgency_fit_score(ticket, skill, tech_workload)
@@ -731,6 +760,8 @@ def recommend_assignments(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame,
                 + TECHNICIAN_WEIGHTS["sla_urgency_fit"] * sla_urgency_fit
                 + TECHNICIAN_WEIGHTS["complexity_fit"] * complexity_fit
             )
+            # Penalties and bonuses are applied after the weighted base score so
+            # operational safeguards remain easy to reason about.
             total_score = max(
                 0.0,
                 total_score
@@ -760,7 +791,7 @@ def recommend_assignments(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame,
                 rationale.append(f"ticket mapped to {skill_alignment['required_skill_count']} required skills")
             if text_expertise["text_match_count"] > 0:
                 rationale.append(
-                    f"{text_expertise['text_match_count']} BM25/TF-IDF/MiniLM text matches"
+                    f"{text_expertise['text_match_count']} BM25/MiniLM text matches"
                 )
             if skill["account_match_count"] > 0:
                 rationale.append(f"familiar with account {ticket['account']}")
@@ -868,6 +899,7 @@ def recommend_assignments(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame,
         "technician_pool_size": int(len(technician_pool)),
         "recommendation_rows": int(len(recommendations)),
         "tickets_with_recommendations": int(recommendations["ticket_id"].nunique()) if not recommendations.empty else 0,
+        "uses_workload_management": True,
         "uses_employee_skill_matching": True,
         "uses_bm25_text_expertise": True,
         "uses_embedding_text_expertise": True,

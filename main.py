@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Convenience launcher for the main project workflows."""
+
 import argparse
 import subprocess
 import sys
@@ -18,6 +20,8 @@ LOAD_OUTPUTS_SCRIPT = PROJECT_ROOT / "src" / "load_outputs_to_postgres.py"
 RAW_DATA_PATH = PROJECT_ROOT / "data" / "Raw_Data" / "autotask_raw_data.csv"
 OPEN_DATASET_PATH = PROJECT_ROOT / "data" / "Feature_Engineered" / "autotask_open_tickets_dataset.csv"
 RECOMMENDATIONS_PATH = PROJECT_ROOT / "data" / "Recommendations" / "assignment_recommendations.csv"
+SKILLS_PROFILE_PATH = PROJECT_ROOT / "data" / "Feature_Engineered" / "employee_skills_profile.csv"
+WORKLOAD_SNAPSHOT_PATH = PROJECT_ROOT / "data" / "Recommendations" / "technician_workload_snapshot.csv"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -97,6 +101,8 @@ def show_status(_: argparse.Namespace) -> int:
     status_items = [
         ("Raw ticket dataset", RAW_DATA_PATH),
         ("Open ticket dataset", OPEN_DATASET_PATH),
+        ("Employee skills profile", SKILLS_PROFILE_PATH),
+        ("Technician workload snapshot", WORKLOAD_SNAPSHOT_PATH),
         ("Recommendation output", RECOMMENDATIONS_PATH),
     ]
 
@@ -115,6 +121,7 @@ def show_status(_: argparse.Namespace) -> int:
     print("  python main.py pipeline --all-tickets")
     print("  python main.py dashboard")
     print("  python main.py load-postgres")
+    print("\nThe pipeline refreshes employee skills and workload-managed recommendations automatically.")
     return 0
 
 

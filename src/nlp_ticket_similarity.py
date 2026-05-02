@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+"""Build BM25 + MiniLM similarity features for open-ticket recommendations.
+
+This module compares active tickets with historically completed tickets and
+produces two outputs:
+1. ticket-level match rows for inspection and downstream scoring
+2. a summary row per open ticket used by later pipeline steps
+"""
+
 import json
 import math
 from pathlib import Path
@@ -7,8 +15,6 @@ from collections import Counter
 
 import numpy as np
 import pandas as pd
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 
 try:
     from sentence_transformers import SentenceTransformer
@@ -26,14 +32,12 @@ TOP_K = 5
 BM25_K1 = 1.5
 BM25_B = 0.75
 EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-HYBRID_TFIDF_WEIGHT = 0.20
-HYBRID_BM25_WEIGHT = 0.20
+HYBRID_BM25_WEIGHT = 0.40
 HYBRID_EMBEDDING_WEIGHT = 0.60
 
 
 def load_feature_data() -> pd.DataFrame:
-    df = pd.read_csv(FEATURE_DATA_PATH)
-    return df
+    return pd.read_csv(FEATURE_DATA_PATH)
 
 
 def normalize_text(series: pd.Series) -> pd.Series:
@@ -140,16 +144,6 @@ def build_similarity_outputs(
     if completed.empty or open_tickets.empty:
         return pd.DataFrame(), pd.DataFrame(), {"open_ticket_count": int(len(open_tickets)), "match_rows": 0}
 
-    vectorizer = TfidfVectorizer(
-        stop_words="english",
-        ngram_range=(1, 2),
-        min_df=1,
-        max_features=5000,
-    )
-
-    completed_matrix = vectorizer.fit_transform(completed["nlp_text"])
-    open_matrix = vectorizer.transform(open_tickets["nlp_text"])
-    tfidf_similarity_matrix = cosine_similarity(open_matrix, completed_matrix)
     bm25_index = build_bm25_index(completed["nlp_text"])
     embedding_model = load_embedding_model()
     completed_embeddings = embedding_model.encode(
@@ -171,13 +165,12 @@ def build_similarity_outputs(
     open_reset = open_tickets.reset_index(drop=True)
 
     for open_idx, ticket in open_reset.iterrows():
-        tfidf_scores = tfidf_similarity_matrix[open_idx]
         raw_bm25_scores = bm25_scores(ticket["nlp_text"], bm25_index)
         normalized_bm25_scores = normalize_scores(raw_bm25_scores)
         embedding_scores = embedding_similarity_matrix[open_idx]
+        # The final similarity signal blends lexical retrieval with semantic retrieval.
         hybrid_scores = (
-            (HYBRID_TFIDF_WEIGHT * tfidf_scores)
-            + (HYBRID_BM25_WEIGHT * normalized_bm25_scores)
+            (HYBRID_BM25_WEIGHT * normalized_bm25_scores)
             + (HYBRID_EMBEDDING_WEIGHT * embedding_scores)
         )
 
@@ -185,7 +178,6 @@ def build_similarity_outputs(
         top_scores = hybrid_scores[top_indices]
         matched_tickets = completed_reset.iloc[top_indices].copy()
         matched_tickets["similarity_score"] = top_scores
-        matched_tickets["tfidf_similarity_score"] = tfidf_scores[top_indices]
         matched_tickets["bm25_score"] = raw_bm25_scores[top_indices]
         matched_tickets["bm25_score_normalized"] = normalized_bm25_scores[top_indices]
         matched_tickets["embedding_similarity_score"] = embedding_scores[top_indices]
@@ -214,7 +206,6 @@ def build_similarity_outputs(
                     "matched_resolution_hours": round(float(match["resolution_hours"]), 2),
                     "matched_priority": match["priority"],
                     "similarity_score": round(float(match["similarity_score"]), 4),
-                    "tfidf_similarity_score": round(float(match["tfidf_similarity_score"]), 4),
                     "bm25_score": round(float(match["bm25_score"]), 4),
                     "bm25_score_normalized": round(float(match["bm25_score_normalized"]), 4),
                     "embedding_similarity_score": round(float(match["embedding_similarity_score"]), 4),
@@ -231,8 +222,6 @@ def build_similarity_outputs(
                 "issue_type": ticket["issue_type"],
                 "top_similarity_score": round(float(top_scores[0]), 4),
                 "avg_similarity_score_top5": round(float(np.mean(top_scores)), 4),
-                "top_tfidf_similarity_score": round(float(matched_tickets.iloc[0]["tfidf_similarity_score"]), 4),
-                "avg_tfidf_similarity_score_top5": round(float(matched_tickets["tfidf_similarity_score"].mean()), 4),
                 "top_bm25_score": round(float(matched_tickets.iloc[0]["bm25_score"]), 4),
                 "avg_bm25_score_top5": round(float(matched_tickets["bm25_score"].mean()), 4),
                 "top_bm25_score_normalized": round(float(matched_tickets.iloc[0]["bm25_score_normalized"]), 4),
@@ -262,7 +251,6 @@ def build_similarity_outputs(
         "summary_rows": int(len(summary_df)),
         "top_k": TOP_K,
         "embedding_model_name": EMBEDDING_MODEL_NAME,
-        "tfidf_weight": HYBRID_TFIDF_WEIGHT,
         "bm25_weight": HYBRID_BM25_WEIGHT,
         "embedding_weight": HYBRID_EMBEDDING_WEIGHT,
         "average_top_similarity": round(float(summary_df["top_similarity_score"].mean()), 4),

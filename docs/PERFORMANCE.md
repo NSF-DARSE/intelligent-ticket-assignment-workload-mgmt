@@ -3,52 +3,58 @@
 ## Models Used
 
 The project currently uses:
-- TF-IDF for sparse lexical similarity
-- BM25 for ranked text relevance
-- `sentence-transformers/all-MiniLM-L6-v2` for semantic similarity
-- rule-based and feature-based workload, SLA, and complexity scoring
+- **BM25** for lexical text retrieval
+- **MiniLM** (`sentence-transformers/all-MiniLM-L6-v2`) for semantic similarity
+- rule-based and feature-based scoring for workload, SLA pressure, skill alignment, and complexity
 
 ## Why These Choices Were Made
 
-- TF-IDF and BM25 are lightweight and easy to explain.
-- MiniLM improves meaning-level similarity without requiring a very large embedding model.
-- The final recommendation score blends text similarity with operational constraints such as workload, SLA, and complexity.
+- BM25 gives an interpretable lexical baseline for matching open tickets to historical tickets.
+- MiniLM improves semantic matching when wording differs across similar incidents.
+- A weighted hybrid score keeps the model explainable while still capturing meaning-level similarity.
+- The final recommendation layer combines text similarity with operational constraints rather than relying on text alone.
+
+## Current Hybrid Weights
+
+- BM25: `0.40`
+- MiniLM: `0.60`
 
 ## Dataset Scale Assumption
 
-The current implementation is intended for small-to-medium departmental ticket datasets. During development, the pipeline has been exercised on low-thousands-scale ticket data rather than millions of records.
+The current implementation is intended for small-to-medium ticket datasets. During development, the pipeline has been exercised on low-thousands-scale ticket data rather than very large enterprise-scale archives.
 
 ## Resource Awareness
 
-- TF-IDF and BM25 are CPU-friendly for the current scale.
-- MiniLM embeddings are more expensive than lexical similarity, so they are used as a weighted component rather than the entire decision system.
-- The Streamlit dashboard favors readability and interactivity over minimal render cost.
+- BM25 is CPU-friendly for the current scale.
+- MiniLM embedding generation is the most expensive modeling step in the pipeline.
+- The dashboard optimizes for readability and reviewability rather than minimal render cost.
+- PostgreSQL loading improves traceability and dashboard access, but adds I/O overhead compared with a CSV-only workflow.
 
-## Bottlenecks and Tradeoffs
+## Main Bottlenecks
 
-### Main Bottlenecks
-- sentence embedding generation for text similarity
-- repeated CSV loading in local workflows
-- dashboard complexity in a single large Streamlit file
+- sentence embedding generation for active and completed ticket text
+- repeated CSV loading during local development runs
+- dashboard logic concentrated in a single large Streamlit file
 
-### Tradeoffs
-- higher semantic quality from MiniLM increases compute cost compared with TF-IDF only
-- keeping generated outputs as CSV plus PostgreSQL improves traceability, but adds I/O overhead
-- recommendation recomputation after simulated dispatch improves realism, but adds extra scoring work
+## Tradeoffs
+
+- adding MiniLM improves semantic quality but increases runtime compared with BM25 alone
+- storing intermediate outputs as files plus PostgreSQL tables makes debugging easier but increases storage and I/O work
+- simulated dispatch recomputation adds realism to the dashboard but performs extra scoring work
 
 ## Suggested Profiling Method
 
-The repository now includes automated tests, but deeper runtime profiling should be captured during demos or final benchmarking. A simple local timing command is:
+For a quick end-to-end measurement:
 
 ```powershell
 Measure-Command { .\venv\Scripts\python.exe main.py pipeline --all-tickets }
 ```
 
-This gives an end-to-end runtime measurement for the full pipeline on the current machine.
+This measures the full pipeline on the current machine and dataset.
 
 ## What to Report in the Presentation
 
-- why the project uses a hybrid of lexical and embedding models
-- that workload balancing is part of the scoring logic, not only text similarity
-- that current performance is reasonable for course-project dataset scale
-- that the main future optimization targets are embedding generation, dashboard refactoring, and cached intermediate results
+- why the project uses a hybrid lexical + semantic similarity model
+- why the recommendation logic includes workload, SLA, and complexity beyond text matching
+- that MiniLM is the costliest model component in the current workflow
+- that the main future optimization targets are embedding generation, dashboard refactoring, and caching intermediate outputs

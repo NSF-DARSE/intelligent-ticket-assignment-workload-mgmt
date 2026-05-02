@@ -16,6 +16,8 @@ This repository is moving from an evolving project workspace to a cleaner releas
 - Local skills input and Azure connection helper files are ignored by Git.
 - Database configuration must come from `.env`; source code no longer includes fallback credentials.
 - CI now runs an actual automated test suite.
+- The active text similarity stack is now BM25 + MiniLM.
+- The separate time-estimation model has been removed from the supported pipeline.
 
 ### If You Were Depending on Old Tracked Data Files
 
