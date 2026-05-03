@@ -1060,77 +1060,39 @@ def build_recommendation_summary_table(recommendations_df: pd.DataFrame) -> pd.D
     return summary
 
 
-def select_dispatch_ticket(unassigned_board: pd.DataFrame) -> str | None:
-    if "selected_dispatch_ticket_id" not in st.session_state:
-        st.session_state["selected_dispatch_ticket_id"] = None
+def render_dispatch_assignment_queue(unassigned_board: pd.DataFrame) -> None:
+    column_widths = [1.1, 2.8, 1.0, 1.3, 1.3, 1.3]
+    header_cols = st.columns(column_widths)
+    header_cols[0].markdown("**Ticket ID**")
+    header_cols[1].markdown("**Ticket Name**")
+    header_cols[2].markdown("**Priority**")
+    header_cols[3].markdown("**Top 1**")
+    header_cols[4].markdown("**Top 2**")
+    header_cols[5].markdown("**Top 3**")
 
-    valid_ticket_ids = set(unassigned_board["ticket_id"].astype(str)) if not unassigned_board.empty else set()
-    selected_ticket_id = st.session_state.get("selected_dispatch_ticket_id")
+    for _, row in unassigned_board.iterrows():
+        row_cols = st.columns(column_widths, vertical_alignment="center")
+        row_cols[0].write(str(row.get("ticket_id", "")))
+        row_cols[1].write(str(row.get("ticket_title", "")))
+        row_cols[2].write(str(row.get("ticket_priority", "")))
 
-    if selected_ticket_id not in valid_ticket_ids:
-        st.session_state["selected_dispatch_ticket_id"] = next(iter(valid_ticket_ids), None)
-
-    return st.session_state.get("selected_dispatch_ticket_id")
-
-
-def set_dispatch_ticket(ticket_id: str) -> None:
-    st.session_state["selected_dispatch_ticket_id"] = str(ticket_id)
-
-
-def render_dispatch_ticket_list(unassigned_board: pd.DataFrame) -> None:
-    for row in unassigned_board.itertuples(index=False):
-        ticket_id = str(row.ticket_id)
-        selected = st.session_state.get("selected_dispatch_ticket_id") == ticket_id
-        button_label = f"{ticket_id} | {row.ticket_title}"
-        if st.button(
-            button_label,
-            key=f"ticket_pick_{ticket_id}",
-            use_container_width=True,
-            type="primary" if selected else "secondary",
-            on_click=set_dispatch_ticket,
-            args=(ticket_id,),
-        ):
-            pass
-
-
-def build_selected_ticket_detail(active_df: pd.DataFrame, ticket_id: str | None) -> pd.Series | None:
-    if not ticket_id or active_df.empty:
-        return None
-
-    selected_rows = active_df[active_df["ticket_id"].astype(str) == str(ticket_id)]
-    if selected_rows.empty:
-        return None
-
-    return selected_rows.iloc[0]
-
-
-def render_ticket_detail_panel(ticket_row: pd.Series | None) -> None:
-    st.markdown("### Ticket Details")
-    if ticket_row is None:
-        st.info("Select an unassigned ticket to view its details.")
-        return
-
-    detail_fields = [
-        ("Ticket ID", ticket_row.get("ticket_id")),
-        ("Priority", ticket_row.get("priority")),
-        ("Category", ticket_row.get("issue_type_group", ticket_row.get("queue_group", "Missing"))),
-        ("Issue Type", ticket_row.get("issue_type")),
-        ("SLA Status", ticket_row.get("sla_priority_class")),
-        ("Complexity", ticket_row.get("complexity_class")),
-        ("Account", ticket_row.get("account")),
-        ("Created", ticket_row.get("created_at")),
-    ]
-
-    detail_df = pd.DataFrame(detail_fields, columns=["Field", "Value"])
-    st.dataframe(detail_df, use_container_width=True, hide_index=True)
-
-    description = (
-        ticket_row.get("description")
-        or ticket_row.get("ticket_text")
-        or "No ticket description is available for the selected record."
-    )
-    st.markdown("#### Description")
-    st.write(str(description))
+        for rank, col in zip([1, 2, 3], row_cols[3:]):
+            technician_name = row.get(f"top_{rank}_technician")
+            disabled = pd.isna(technician_name) or str(technician_name).strip() == ""
+            label = str(technician_name) if not disabled else f"No Rank {rank}"
+            if col.button(
+                label,
+                key=f"dispatcher_assign_{row.get('ticket_id')}_{rank}",
+                use_container_width=True,
+                disabled=disabled,
+            ):
+                try:
+                    persist_dispatch_action(row, rank)
+                    load_data.clear()
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Could not save simulated assignment: {exc}")
+        st.divider()
 
 
 def render_top_recommendation_panel(
@@ -1766,37 +1728,7 @@ def main() -> None:
         if dispatcher_unassigned_board.empty:
             st.success("There are no unassigned tickets in the current view.")
         else:
-            header_cols = st.columns([1.1, 2.8, 1.0, 1.3, 1.3, 1.3])
-            header_cols[0].markdown("**Ticket ID**")
-            header_cols[1].markdown("**Ticket Name**")
-            header_cols[2].markdown("**Priority**")
-            header_cols[3].markdown("**Top 1**")
-            header_cols[4].markdown("**Top 2**")
-            header_cols[5].markdown("**Top 3**")
-
-            for _, row in dispatcher_unassigned_board.iterrows():
-                row_cols = st.columns([1.1, 2.8, 1.0, 1.3, 1.3, 1.3], vertical_alignment="center")
-                row_cols[0].write(str(row.get("ticket_id", "")))
-                row_cols[1].write(str(row.get("ticket_title", "")))
-                row_cols[2].write(str(row.get("ticket_priority", "")))
-
-                for rank, col in zip([1, 2, 3], row_cols[3:]):
-                    tech_name = row.get(f"top_{rank}_technician")
-                    disabled = pd.isna(tech_name) or str(tech_name).strip() == ""
-                    label = str(tech_name) if not disabled else f"No Rank {rank}"
-                    if col.button(
-                        label,
-                        key=f"dispatcher_assign_{row.get('ticket_id')}_{rank}",
-                        use_container_width=True,
-                        disabled=disabled,
-                    ):
-                        try:
-                            persist_dispatch_action(row, rank)
-                            load_data.clear()
-                            st.rerun()
-                        except Exception as exc:
-                            st.error(f"Could not save simulated assignment: {exc}")
-                st.divider()
+            render_dispatch_assignment_queue(dispatcher_unassigned_board)
 
         st.markdown("### Assigned Ticket Export View")
         dispatcher_assigned_view = slice_or_empty(

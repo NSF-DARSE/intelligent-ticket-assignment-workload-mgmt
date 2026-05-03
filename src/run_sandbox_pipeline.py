@@ -6,11 +6,23 @@ import argparse
 import subprocess
 import sys
 from pathlib import Path
+from typing import Iterable
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-PYTHON_EXE = PROJECT_ROOT / "venv" / "Scripts" / "python.exe"
 SKILLS_SOURCE_PATH = PROJECT_ROOT / "Skillsdataset.csv"
+
+
+def resolve_python_executable() -> Path:
+    """Prefer the project virtualenv interpreter, but stay cross-platform."""
+    candidate_paths = [
+        PROJECT_ROOT / "venv" / "Scripts" / "python.exe",
+        PROJECT_ROOT / "venv" / "bin" / "python",
+    ]
+    for candidate in candidate_paths:
+        if candidate.exists():
+            return candidate
+    return Path(sys.executable)
 
 
 def parse_args() -> argparse.Namespace:
@@ -37,17 +49,19 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def run_step(command: list[str], label: str) -> None:
+def run_step(command: Iterable[str], label: str) -> None:
     print(f"\n=== {label} ===")
-    print(" ".join(command))
-    subprocess.run(command, cwd=PROJECT_ROOT, check=True)
+    command_list = [str(part) for part in command]
+    print(" ".join(command_list))
+    subprocess.run(command_list, cwd=PROJECT_ROOT, check=True)
 
 
 def main() -> None:
     args = parse_args()
+    python_exe = resolve_python_executable()
 
-    if not PYTHON_EXE.exists():
-        raise FileNotFoundError(f"Python executable not found at {PYTHON_EXE}")
+    if not python_exe.exists():
+        raise FileNotFoundError(f"Python executable not found at {python_exe}")
     if not SKILLS_SOURCE_PATH.exists():
         raise FileNotFoundError(
             f"Skill dataset not found at {SKILLS_SOURCE_PATH}. "
@@ -55,7 +69,7 @@ def main() -> None:
         )
 
     fetch_command = [
-        str(PYTHON_EXE),
+        python_exe,
         "src/fetch_sandbox_tickets.py",
         "--replace-main-raw",
         "--load-postgres",
@@ -73,16 +87,16 @@ def main() -> None:
 
     steps = [
         (fetch_command, "Fetch sandbox tickets"),
-        ([str(PYTHON_EXE), "src/clean_ticket_data.py"], "Clean ticket data"),
-        ([str(PYTHON_EXE), "src/feature_engineering.py"], "Build engineered features"),
-        ([str(PYTHON_EXE), "src/clean_employee_skills.py"], "Normalize employee skills"),
-        ([str(PYTHON_EXE), "src/nlp_ticket_similarity.py"], "Compute NLP similarity"),
-        ([str(PYTHON_EXE), "src/complexity_scoring.py"], "Score complexity"),
-        ([str(PYTHON_EXE), "src/assignment_scorer.py"], "Generate workload-managed skill-aware recommendations"),
+        ([python_exe, "src/clean_ticket_data.py"], "Clean ticket data"),
+        ([python_exe, "src/feature_engineering.py"], "Build engineered features"),
+        ([python_exe, "src/clean_employee_skills.py"], "Normalize employee skills"),
+        ([python_exe, "src/nlp_ticket_similarity.py"], "Compute NLP similarity"),
+        ([python_exe, "src/complexity_scoring.py"], "Score complexity"),
+        ([python_exe, "src/assignment_scorer.py"], "Generate workload-managed skill-aware recommendations"),
     ]
 
     if not args.skip_output_load:
-        steps.append(([str(PYTHON_EXE), "src/load_outputs_to_postgres.py"], "Load outputs to PostgreSQL"))
+        steps.append(([python_exe, "src/load_outputs_to_postgres.py"], "Load outputs to PostgreSQL"))
 
     for command, label in steps:
         run_step(command, label)

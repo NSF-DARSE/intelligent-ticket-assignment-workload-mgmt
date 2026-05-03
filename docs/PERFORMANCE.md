@@ -52,6 +52,35 @@ Measure-Command { .\venv\Scripts\python.exe main.py pipeline --all-tickets }
 
 This measures the full pipeline on the current machine and dataset.
 
+## Measured Local Benchmark
+
+The repository now includes a repeatable benchmark runner:
+
+```powershell
+.\venv\Scripts\python.exe .\src\benchmark_pipeline.py
+```
+
+Latest measured local benchmark:
+- benchmark date: `2026-05-03`
+- dataset scale: `2038` raw tickets
+- total runtime: `37.275 s`
+- slowest stage: `BM25 + MiniLM similarity` at `18.341 s`
+
+Stage breakdown from the latest benchmark:
+
+| Stage | Runtime (s) | Peak Memory (MB) | Key Volume |
+|---|---:|---:|---|
+| Clean ticket data | 0.490 | 4.707 | 2038 rows |
+| Feature engineering | 0.320 | 6.213 | 2038 rows, 1568 open, 470 training |
+| Employee skill normalization | 0.020 | 0.283 | 11 employees, 110 skill rows |
+| BM25 + MiniLM similarity | 18.341 | 14.849 | 536 open tickets, 2680 match rows |
+| Complexity scoring | 0.224 | 5.852 | 2038 rows |
+| Recommendation scoring | 17.880 | 12.715 | 536 open tickets, 1608 recommendation rows |
+
+The generated benchmark artifacts are saved to:
+- `data/Evaluation/performance_benchmark.json`
+- `data/Evaluation/performance_benchmark.md`
+
 ## What to Report in the Presentation
 
 - why the project uses a hybrid lexical + semantic similarity model
