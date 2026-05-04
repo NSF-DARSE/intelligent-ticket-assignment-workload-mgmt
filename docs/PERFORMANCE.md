@@ -60,6 +60,12 @@ The repository now includes a repeatable benchmark runner:
 .\venv\Scripts\python.exe .\src\benchmark_pipeline.py
 ```
 
+By default, the benchmark reuses cached local similarity outputs so it can run without a network call to download MiniLM. To force a full BM25 + MiniLM recomputation, run:
+
+```powershell
+.\venv\Scripts\python.exe .\src\benchmark_pipeline.py --recompute-similarity
+```
+
 Latest measured local benchmark:
 - benchmark date: `2026-05-03`
 - dataset scale: `2038` raw tickets

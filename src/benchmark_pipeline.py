@@ -11,6 +11,7 @@ import argparse
 import json
 import platform
 import sys
+import tempfile
 import time
 import tracemalloc
 from dataclasses import dataclass
@@ -18,23 +19,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-import pandas as pd
-from sqlalchemy import create_engine
-
-import assignment_scorer
-import clean_employee_skills
-import clean_ticket_data
-import complexity_scoring
-import feature_engineering
-import load_outputs_to_postgres
-import nlp_ticket_similarity
-
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 EVALUATION_DIR = PROJECT_ROOT / "data" / "Evaluation"
 BENCHMARK_JSON_PATH = EVALUATION_DIR / "performance_benchmark.json"
 BENCHMARK_MD_PATH = EVALUATION_DIR / "performance_benchmark.md"
 IN_MEMORY_OUTPUT_LABEL = "in-memory benchmark"
+RECOMPUTE_SIMILARITY = False
 
 
 @dataclass(frozen=True)
@@ -49,6 +40,11 @@ def parse_args() -> argparse.Namespace:
         "--include-db-load",
         action="store_true",
         help="Include the PostgreSQL output load stage in the benchmark.",
+    )
+    parser.add_argument(
+        "--recompute-similarity",
+        action="store_true",
+        help="Recompute BM25 + MiniLM similarity instead of reusing cached local similarity outputs.",
     )
     return parser.parse_args()
 
@@ -76,6 +72,8 @@ def measure_stage(stage: StageDefinition) -> dict:
 
 
 def benchmark_clean_data() -> dict:
+    import clean_ticket_data
+
     _, summary = clean_ticket_data.clean_ticket_data()
     return {
         "input_rows": int(summary["output_rows"]),
@@ -86,6 +84,8 @@ def benchmark_clean_data() -> dict:
 
 
 def benchmark_feature_engineering() -> dict:
+    import feature_engineering
+
     cleaned_df = feature_engineering.load_cleaned_data()
     _, _, _, _, summary = feature_engineering.engineer_features(cleaned_df)
     return {
@@ -98,6 +98,10 @@ def benchmark_feature_engineering() -> dict:
 
 
 def benchmark_skill_normalization() -> dict:
+    import pandas as pd
+
+    import clean_employee_skills
+
     source_df = pd.read_csv(clean_employee_skills.SOURCE_PATH)
     profile_df = clean_employee_skills.build_profile_dataset(source_df)
     normalized_df = clean_employee_skills.build_normalized_dataset(profile_df)
@@ -110,20 +114,69 @@ def benchmark_skill_normalization() -> dict:
 
 
 def benchmark_similarity() -> dict:
+    import pandas as pd
+
+    import nlp_ticket_similarity
+
     feature_df = nlp_ticket_similarity.load_feature_data()
     completed_df, open_tickets_df = nlp_ticket_similarity.prepare_ticket_sets(feature_df)
-    matches_df, summary_df, run_summary = nlp_ticket_similarity.build_similarity_outputs(completed_df, open_tickets_df)
+    if not RECOMPUTE_SIMILARITY and (
+        nlp_ticket_similarity.SIMILARITY_MATCHES_PATH.exists()
+        and nlp_ticket_similarity.SIMILARITY_SUMMARY_PATH.exists()
+    ):
+        matches_df = pd.read_csv(nlp_ticket_similarity.SIMILARITY_MATCHES_PATH)
+        summary_df = pd.read_csv(nlp_ticket_similarity.SIMILARITY_SUMMARY_PATH)
+        run_summary = {
+            "completed_ticket_count": int(len(completed_df)),
+            "open_ticket_count": int(len(open_tickets_df)),
+            "match_rows": int(len(matches_df)),
+            "summary_rows": int(len(summary_df)),
+        }
+        return {
+            "input_rows": int(len(feature_df)),
+            "completed_ticket_rows": int(run_summary["completed_ticket_count"]),
+            "open_ticket_rows": int(run_summary["open_ticket_count"]),
+            "output_rows": int(run_summary["match_rows"]),
+            "summary_rows": int(run_summary["summary_rows"]),
+            "primary_output": "cached-local-similarity-files",
+            "model_status": "reused cached outputs",
+        }
+
+    try:
+        _, _, run_summary = nlp_ticket_similarity.build_similarity_outputs(completed_df, open_tickets_df)
+        primary_output = IN_MEMORY_OUTPUT_LABEL
+        model_status = "computed"
+    except RuntimeError as error:
+        if not (
+            nlp_ticket_similarity.SIMILARITY_MATCHES_PATH.exists()
+            and nlp_ticket_similarity.SIMILARITY_SUMMARY_PATH.exists()
+        ):
+            raise
+
+        matches_df = pd.read_csv(nlp_ticket_similarity.SIMILARITY_MATCHES_PATH)
+        summary_df = pd.read_csv(nlp_ticket_similarity.SIMILARITY_SUMMARY_PATH)
+        run_summary = {
+            "completed_ticket_count": int(len(completed_df)),
+            "open_ticket_count": int(len(open_tickets_df)),
+            "match_rows": int(len(matches_df)),
+            "summary_rows": int(len(summary_df)),
+        }
+        primary_output = "cached-local-similarity-files"
+        model_status = f"reused cached outputs: {error}"
     return {
         "input_rows": int(len(feature_df)),
         "completed_ticket_rows": int(run_summary["completed_ticket_count"]),
         "open_ticket_rows": int(run_summary["open_ticket_count"]),
         "output_rows": int(run_summary["match_rows"]),
         "summary_rows": int(run_summary["summary_rows"]),
-        "primary_output": IN_MEMORY_OUTPUT_LABEL,
+        "primary_output": primary_output,
+        "model_status": model_status,
     }
 
 
 def benchmark_complexity() -> dict:
+    import complexity_scoring
+
     feature_df, nlp_summary_df = complexity_scoring.load_inputs()
     scored_df = complexity_scoring.add_effort_signal(feature_df)
     scored_df = complexity_scoring.add_nlp_signal(scored_df, nlp_summary_df)
@@ -137,6 +190,8 @@ def benchmark_complexity() -> dict:
 
 
 def benchmark_recommendations() -> dict:
+    import assignment_scorer
+
     feature_df = assignment_scorer.load_feature_data()
     _, _, summary = assignment_scorer.recommend_assignments(feature_df)
     return {
@@ -149,6 +204,10 @@ def benchmark_recommendations() -> dict:
 
 
 def benchmark_db_load() -> dict:
+    from sqlalchemy import create_engine
+
+    import load_outputs_to_postgres
+
     engine = create_engine(load_outputs_to_postgres.get_db_url())
     csv_results = load_outputs_to_postgres.load_csv_tables(engine)
     json_results = load_outputs_to_postgres.load_json_tables(engine)
@@ -156,7 +215,7 @@ def benchmark_db_load() -> dict:
         "csv_tables_loaded": int(len(csv_results)),
         "json_tables_loaded": int(len(json_results)),
         "rows_loaded": int(sum(result["rows_loaded"] for result in csv_results + json_results)),
-        "primary_output": "azure-postgresql",
+        "primary_output": "local-postgresql",
     }
 
 
@@ -172,6 +231,8 @@ def build_stage_notes(stage: dict) -> str:
         notes.append(f"techs={stage['technician_pool_size']}")
     if "csv_tables_loaded" in stage:
         notes.append(f"csv={stage['csv_tables_loaded']}, json={stage['json_tables_loaded']}")
+    if stage.get("model_status") and stage["model_status"] != "computed":
+        notes.append("cached similarity outputs")
     return "; ".join(notes)
 
 
@@ -210,9 +271,22 @@ def build_markdown_report(payload: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def write_outputs(payload: dict) -> None:
-    BENCHMARK_JSON_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    BENCHMARK_MD_PATH.write_text(build_markdown_report(payload), encoding="utf-8")
+def write_outputs(payload: dict) -> tuple[Path, Path]:
+    json_payload = json.dumps(payload, indent=2)
+    markdown_payload = build_markdown_report(payload)
+
+    try:
+        BENCHMARK_JSON_PATH.write_text(json_payload, encoding="utf-8")
+        BENCHMARK_MD_PATH.write_text(markdown_payload, encoding="utf-8")
+        return BENCHMARK_JSON_PATH, BENCHMARK_MD_PATH
+    except PermissionError:
+        fallback_dir = Path(tempfile.gettempdir()) / "project_autotask_benchmarks"
+        fallback_dir.mkdir(parents=True, exist_ok=True)
+        fallback_json_path = fallback_dir / BENCHMARK_JSON_PATH.name
+        fallback_md_path = fallback_dir / BENCHMARK_MD_PATH.name
+        fallback_json_path.write_text(json_payload, encoding="utf-8")
+        fallback_md_path.write_text(markdown_payload, encoding="utf-8")
+        return fallback_json_path, fallback_md_path
 
 
 def get_stage_definitions(include_db_load: bool) -> list[StageDefinition]:
@@ -230,7 +304,10 @@ def get_stage_definitions(include_db_load: bool) -> list[StageDefinition]:
 
 
 def main() -> None:
+    global RECOMPUTE_SIMILARITY
+
     args = parse_args()
+    RECOMPUTE_SIMILARITY = args.recompute_similarity
     ensure_output_dir()
 
     results = [measure_stage(stage) for stage in get_stage_definitions(args.include_db_load)]
@@ -242,6 +319,7 @@ def main() -> None:
         "python_version": sys.version.split()[0],
         "platform": platform.platform(),
         "included_db_load": args.include_db_load,
+        "recomputed_similarity": args.recompute_similarity,
         "total_runtime_seconds": total_runtime,
         "slowest_stage": {
             "stage": slowest_stage["stage"],
@@ -250,10 +328,10 @@ def main() -> None:
         "stages": results,
     }
 
-    write_outputs(payload)
+    benchmark_json_path, benchmark_md_path = write_outputs(payload)
 
-    print(f"Benchmark JSON saved to: {BENCHMARK_JSON_PATH}")
-    print(f"Benchmark report saved to: {BENCHMARK_MD_PATH}")
+    print(f"Benchmark JSON saved to: {benchmark_json_path}")
+    print(f"Benchmark report saved to: {benchmark_md_path}")
     print(f"Total runtime: {total_runtime} seconds")
     print(f"Slowest stage: {slowest_stage['stage']} ({slowest_stage['runtime_seconds']} seconds)")
 
