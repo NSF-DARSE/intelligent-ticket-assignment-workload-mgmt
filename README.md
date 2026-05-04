@@ -72,9 +72,7 @@ Project_Autotask
 |-- .github/workflows/       # CI and local validation workflows
 |-- docs/
 |   |-- API_REFERENCE.md
-|   |-- PERFORMANCE.md
-|   |-- PRESENTATION_OUTLINE.md
-|   `-- RUBRIC_COVERAGE.md
+|   `-- PERFORMANCE.md
 |-- sql/
 |   `-- create_autotask_table.sql
 |-- src/
@@ -287,10 +285,6 @@ Create a release tag after final validation:
 git tag -a v1.0.0 -m "Release v1.0.0"
 git push origin v1.0.0
 ```
-
-## Rubric Evidence
-
-The project includes a rubric mapping in [docs/RUBRIC_COVERAGE.md](docs/RUBRIC_COVERAGE.md). Presentation structure is summarized in [docs/PRESENTATION_OUTLINE.md](docs/PRESENTATION_OUTLINE.md).
 
 ## Known Limitations
 
