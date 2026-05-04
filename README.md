@@ -12,12 +12,12 @@ The pipeline:
 - compares open tickets with completed tickets using a hybrid **BM25 + MiniLM** retrieval model
 - scores ticket complexity
 - ranks the best three technicians for each active ticket
-- loads the processed outputs into PostgreSQL
+- writes pipeline artifacts locally and loads the processed outputs into local PostgreSQL
 - presents the final results in a Streamlit dashboard
 
 The system is designed to stay explainable. Recommendation scores combine text similarity, skills, ticket history, SLA pressure, complexity, and workload rather than relying on a single opaque model.
 
-Generated datasets, local secrets, Azure helpers, and private input files stay local and are not intended to be committed to Git.
+Generated datasets, local secrets, local database settings, and private input files stay local and are not intended to be committed to Git.
 
 ## Current Recommendation Design
 
@@ -55,7 +55,7 @@ Those files are then used by the scorer to:
 
 The supported workflow is:
 
-1. Configure environment variables and database access
+1. Configure Autotask and local PostgreSQL environment variables
 2. Fetch raw Autotask tickets
 3. Clean and standardize the dataset
 4. Engineer ticket features and training/open splits
@@ -63,8 +63,7 @@ The supported workflow is:
 6. Build BM25 + MiniLM ticket similarity outputs
 7. Score ticket complexity
 8. Generate workload-managed, skill-aware top-3 technician recommendations
-9. Load outputs into PostgreSQL
-10. Review the results in the Streamlit dashboard
+9. Load outputs into local PostgreSQL and review them in the Streamlit dashboard
 
 ## Project Structure
 
@@ -133,26 +132,17 @@ The repository also includes [pyproject.toml](pyproject.toml) for project metada
 
 Create a `.env` file from [.env.example](.env.example) and provide values for:
 
-- `DB_HOST`
-- `DB_PORT`
-- `DB_NAME`
+- `DB_HOST=localhost`
+- `DB_PORT=5432`
+- `DB_NAME=autotask_local`
 - `DB_USER`
 - `DB_PASSWORD`
-- `DB_SSLMODE` when required
 - `AUTOTASK_API_BASE_URL`
 - `AUTOTASK_API_USERNAME`
 - `AUTOTASK_API_SECRET`
 - `AUTOTASK_API_INTEGRATION_CODE`
 
-### 5. Test the database connection
-
-```powershell
-.\venv\Scripts\python.exe src\db_connection.py
-```
-
-This confirms that the PostgreSQL settings in `.env` are valid.
-
-### 6. Run the tests
+### 5. Run the tests
 
 ```powershell
 .\venv\Scripts\python.exe -m unittest discover -s tests -v
@@ -171,7 +161,7 @@ What it does:
 - connects to the Autotask sandbox API
 - downloads ticket data
 - saves the raw export locally
-- optionally refreshes the raw PostgreSQL table
+- refreshes the `autotask_raw` table in local PostgreSQL when `--load-postgres` is passed
 
 Run:
 
@@ -318,30 +308,15 @@ Main outputs:
 - `data/Recommendations/technician_workload_snapshot.csv`
 - `data/Recommendations/recommendation_summary.json`
 
-### Step 8. Load outputs into PostgreSQL
-
-Script:
-- `src/load_outputs_to_postgres.py`
-
-What it does:
-- loads the generated CSV outputs into PostgreSQL reporting tables
-- loads summary JSON files into PostgreSQL summary tables
-- prepares the data used by the dashboard and downstream reviews
-
-Run:
-
-```powershell
-.\venv\Scripts\python.exe src\load_outputs_to_postgres.py
-```
-
-### Step 9. Open the dashboard
+### Step 8. Open the dashboard
 
 Script:
 - `src/interactive_dashboard.py`
 
 What it does:
 - shows KPIs, employee views, recommendation views, and the ticket assignment board
-- supports simulated dispatch actions stored in PostgreSQL
+- reads local PostgreSQL reporting tables
+- saves simulated dispatch actions to `autotask_dashboard_dispatch_actions` in local PostgreSQL
 
 Run:
 
@@ -351,7 +326,7 @@ Run:
 
 ## One-Command Pipeline
 
-Run the full backend workflow from ticket fetch through PostgreSQL load:
+Run the full local backend workflow from ticket fetch through local PostgreSQL loading:
 
 ```powershell
 .\venv\Scripts\python.exe src\run_sandbox_pipeline.py --all-tickets
@@ -365,7 +340,7 @@ This runs:
 5. BM25 + MiniLM similarity
 6. complexity scoring
 7. recommendation scoring
-8. PostgreSQL loading
+8. local PostgreSQL loading
 
 ## Main Project Launcher
 
@@ -383,11 +358,13 @@ Use [main.py](main.py) as the single entry point for the common workflows.
 .\venv\Scripts\python.exe main.py pipeline --all-tickets
 ```
 
-### Load outputs into PostgreSQL
+### Load outputs into local PostgreSQL
 
 ```powershell
 .\venv\Scripts\python.exe main.py load-postgres
 ```
+
+This reloads the generated CSV and JSON outputs into local PostgreSQL reporting tables.
 
 ### Start the dashboard
 
@@ -400,16 +377,15 @@ Use [main.py](main.py) as the single entry point for the common workflows.
 1. create and activate the virtual environment
 2. install dependencies
 3. configure `.env`
-4. test the PostgreSQL connection
-5. fetch Autotask tickets
-6. clean tickets
-7. engineer ticket features
-8. normalize employee skills
-9. run BM25 + MiniLM similarity
-10. score complexity
-11. generate recommendations
-12. load outputs into PostgreSQL
-13. open the dashboard
+4. fetch Autotask tickets
+5. clean tickets
+6. engineer ticket features
+7. normalize employee skills
+8. run BM25 + MiniLM similarity
+9. score complexity
+10. generate recommendations
+11. load outputs into local PostgreSQL
+12. open the dashboard
 
 ## Release and Project Documents
 

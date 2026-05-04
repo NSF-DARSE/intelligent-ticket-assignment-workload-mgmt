@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Lightweight database connectivity check for the configured PostgreSQL target."""
+"""Lightweight database connectivity check for the configured local PostgreSQL target."""
 
 import pandas as pd
 from sqlalchemy import create_engine, text

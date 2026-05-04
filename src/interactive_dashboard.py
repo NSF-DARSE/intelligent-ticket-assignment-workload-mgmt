@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -28,12 +27,11 @@ from assignment_scorer import (
 from load_outputs_to_postgres import get_db_url
 
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-FEATURE_PATH = BASE_DIR / "data" / "Feature_Engineered" / "autotask_feature_engineered.csv"
-COMPLEXITY_PATH = BASE_DIR / "data" / "Complexity" / "autotask_complexity_scored.csv"
-RECOMMENDATIONS_PATH = BASE_DIR / "data" / "Recommendations" / "assignment_recommendations.csv"
-NLP_PATH = BASE_DIR / "data" / "NLP" / "ticket_similarity_summary.csv"
-EMPLOYEE_SKILLS_PROFILE_PATH = BASE_DIR / "data" / "Feature_Engineered" / "employee_skills_profile.csv"
+FEATURE_TABLE_NAME = "autotask_feature_engineered"
+COMPLEXITY_TABLE_NAME = "autotask_complexity_scored"
+RECOMMENDATIONS_TABLE_NAME = "autotask_assignment_recommendations"
+NLP_TABLE_NAME = "autotask_ticket_similarity_summary"
+EMPLOYEE_SKILLS_PROFILE_TABLE_NAME = "autotask_employee_skills_profile"
 DISPATCH_TABLE_NAME = "autotask_dashboard_dispatch_actions"
 
 TICKET_RECOMMENDATION_COLUMNS = [
@@ -252,11 +250,11 @@ def slice_or_empty(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
 
 @st.cache_data(ttl=30)
 def load_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    feature_df = load_table_with_fallback("autotask_feature_engineered", FEATURE_PATH)
-    complexity_df = load_table_with_fallback("autotask_complexity_scored", COMPLEXITY_PATH)
-    recommendations_df = load_table_with_fallback("autotask_assignment_recommendations", RECOMMENDATIONS_PATH)
-    nlp_df = load_table_with_fallback("autotask_ticket_similarity_summary", NLP_PATH)
-    employee_skills_df = load_table_with_fallback("autotask_employee_skills_profile", EMPLOYEE_SKILLS_PROFILE_PATH)
+    feature_df = load_postgres_table(FEATURE_TABLE_NAME)
+    complexity_df = load_postgres_table(COMPLEXITY_TABLE_NAME)
+    recommendations_df = load_postgres_table(RECOMMENDATIONS_TABLE_NAME)
+    nlp_df = load_postgres_table(NLP_TABLE_NAME)
+    employee_skills_df = load_postgres_table(EMPLOYEE_SKILLS_PROFILE_TABLE_NAME)
 
     feature_df = feature_df.merge(
         complexity_df[["ticket_id", "complexity_score", "complexity_class", "complexity_reason"]],
@@ -272,12 +270,9 @@ def load_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame,
     return feature_df, complexity_df, recommendations_df, nlp_df, employee_skills_df
 
 
-def load_table_with_fallback(table_name: str, csv_path: Path) -> pd.DataFrame:
-    try:
-        engine = create_engine(get_db_url())
-        return pd.read_sql_table(table_name, engine)
-    except Exception:
-        return pd.read_csv(csv_path)
+def load_postgres_table(table_name: str) -> pd.DataFrame:
+    engine = create_engine(get_db_url())
+    return pd.read_sql_table(table_name, engine)
 
 
 def load_dispatch_actions() -> pd.DataFrame:
@@ -288,31 +283,15 @@ def load_dispatch_actions() -> pd.DataFrame:
         "selected_rank",
         "assigned_at",
     ]
-    try:
-        engine = create_engine(get_db_url())
-        with engine.begin() as conn:
-            conn.execute(
-                text(
-                    f"""
-                    CREATE TABLE IF NOT EXISTS {DISPATCH_TABLE_NAME} (
-                        ticket_id TEXT PRIMARY KEY,
-                        selected_technician TEXT NOT NULL,
-                        selected_employee_name TEXT,
-                        selected_rank INTEGER,
-                        assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-                    )
-                    """
-                )
-            )
-        dispatch_df = pd.read_sql_table(DISPATCH_TABLE_NAME, engine)
-        for column in columns:
-            if column not in dispatch_df.columns:
-                dispatch_df[column] = pd.NA
-        dispatch_df["ticket_id"] = dispatch_df["ticket_id"].astype(str)
-        dispatch_df["selected_technician"] = dispatch_df["selected_technician"].map(canonicalize_technician_key)
-        return dispatch_df[columns]
-    except Exception:
-        return pd.DataFrame(columns=columns)
+    engine = create_engine(get_db_url())
+    ensure_dispatch_table(engine)
+    dispatch_df = pd.read_sql_table(DISPATCH_TABLE_NAME, engine)
+    for column in columns:
+        if column not in dispatch_df.columns:
+            dispatch_df[column] = pd.NA
+    dispatch_df["ticket_id"] = dispatch_df["ticket_id"].astype(str)
+    dispatch_df["selected_technician"] = dispatch_df["selected_technician"].map(canonicalize_technician_key)
+    return dispatch_df[columns]
 
 
 def persist_dispatch_action(ticket_row: pd.Series, selected_rank: int) -> None:
@@ -329,20 +308,8 @@ def persist_dispatch_action(ticket_row: pd.Series, selected_rank: int) -> None:
     }
 
     engine = create_engine(get_db_url())
+    ensure_dispatch_table(engine)
     with engine.begin() as conn:
-        conn.execute(
-            text(
-                f"""
-                CREATE TABLE IF NOT EXISTS {DISPATCH_TABLE_NAME} (
-                    ticket_id TEXT PRIMARY KEY,
-                    selected_technician TEXT NOT NULL,
-                    selected_employee_name TEXT,
-                    selected_rank INTEGER,
-                    assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-        )
         conn.execute(
             text(
                 f"""
@@ -358,6 +325,23 @@ def persist_dispatch_action(ticket_row: pd.Series, selected_rank: int) -> None:
                 """
             ),
             payload,
+        )
+
+
+def ensure_dispatch_table(engine) -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS {DISPATCH_TABLE_NAME} (
+                    ticket_id TEXT PRIMARY KEY,
+                    selected_technician TEXT NOT NULL,
+                    selected_employee_name TEXT,
+                    selected_rank INTEGER,
+                    assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
         )
 
 
@@ -1745,7 +1729,7 @@ def main() -> None:
     with ticket_board_tab:
         st.subheader("Open Ticket Recommendation Board")
         st.caption(
-            "One row per open ticket showing the current assigned technician and the top 3 recommended technicians from the PostgreSQL-backed recommendation output."
+            "One row per open ticket showing the current assigned technician and the top 3 recommended technicians from the local recommendation output."
         )
         board_kpi1, board_kpi2, board_kpi3, board_kpi4 = st.columns(4)
         board_kpi1.metric("Open Tickets in View", f"{len(active_filtered):,}")

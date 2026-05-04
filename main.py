@@ -33,7 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser = subparsers.add_parser("status", help="Show a quick summary of project outputs.")
     status_parser.set_defaults(func=show_status)
 
-    pipeline_parser = subparsers.add_parser("pipeline", help="Run the full sandbox-backed pipeline.")
+    pipeline_parser = subparsers.add_parser("pipeline", help="Run the full local PostgreSQL-backed pipeline.")
     pipeline_parser.add_argument(
         "--days-back",
         type=int,
@@ -56,11 +56,6 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Fetch only open tickets.",
     )
-    pipeline_parser.add_argument(
-        "--skip-output-load",
-        action="store_true",
-        help="Skip loading generated outputs into PostgreSQL at the end.",
-    )
     pipeline_parser.set_defaults(func=run_pipeline)
 
     dashboard_parser = subparsers.add_parser("dashboard", help="Launch the Streamlit dashboard.")
@@ -74,7 +69,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     postgres_parser = subparsers.add_parser(
         "load-postgres",
-        help="Load the generated CSV and JSON outputs into PostgreSQL.",
+        help="Load the generated CSV and JSON outputs into local PostgreSQL.",
     )
     postgres_parser.set_defaults(func=run_load_outputs)
 
@@ -121,7 +116,7 @@ def show_status(_: argparse.Namespace) -> int:
     print("  python main.py pipeline --all-tickets")
     print("  python main.py dashboard")
     print("  python main.py load-postgres")
-    print("\nThe pipeline refreshes employee skills and workload-managed recommendations automatically.")
+    print("\nThe pipeline refreshes local PostgreSQL tables, employee skills, and workload-managed recommendations automatically.")
     return 0
 
 
@@ -138,9 +133,6 @@ def run_pipeline(args: argparse.Namespace) -> int:
         command.extend(["--max-records", str(args.max_records)])
     if args.open_only:
         command.append("--open-only")
-    if args.skip_output_load:
-        command.append("--skip-output-load")
-
     return run_command(command, "Run Full Sandbox Pipeline")
 
 
@@ -161,7 +153,7 @@ def run_dashboard(args: argparse.Namespace) -> int:
 def run_load_outputs(_: argparse.Namespace) -> int:
     python_exe = ensure_python()
     command = [str(python_exe), str(LOAD_OUTPUTS_SCRIPT)]
-    return run_command(command, "Load Outputs To PostgreSQL")
+    return run_command(command, "Load Outputs To Local PostgreSQL")
 
 
 def main() -> int:

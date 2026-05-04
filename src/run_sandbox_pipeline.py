@@ -27,7 +27,7 @@ def resolve_python_executable() -> Path:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Fetch tickets from the Autotask sandbox and run the full recommendation pipeline."
+        description="Fetch tickets from the Autotask sandbox, run the recommendation pipeline, and load local PostgreSQL."
     )
     parser.add_argument("--days-back", type=int, default=365, help="Fetch tickets created in the last N days.")
     parser.add_argument(
@@ -40,11 +40,6 @@ def parse_args() -> argparse.Namespace:
         "--open-only",
         action="store_true",
         help="Fetch only open tickets. Use with care because the downstream model benefits from historical tickets.",
-    )
-    parser.add_argument(
-        "--skip-output-load",
-        action="store_true",
-        help="Skip the final load of generated outputs into PostgreSQL.",
     )
     return parser.parse_args()
 
@@ -95,14 +90,13 @@ def main() -> None:
         ([python_exe, "src/assignment_scorer.py"], "Generate workload-managed skill-aware recommendations"),
     ]
 
-    if not args.skip_output_load:
-        steps.append(([python_exe, "src/load_outputs_to_postgres.py"], "Load outputs to PostgreSQL"))
+    steps.append(([python_exe, "src/load_outputs_to_postgres.py"], "Load outputs to local PostgreSQL"))
 
     for command, label in steps:
         run_step(command, label)
 
     print("\nSandbox pipeline completed successfully.")
-    print("Open-ticket recommendations are available in data/Recommendations/assignment_recommendations.csv")
+    print("Open-ticket recommendations are loaded into local PostgreSQL table autotask_assignment_recommendations.")
 
 
 if __name__ == "__main__":

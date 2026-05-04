@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Load generated CSV and JSON outputs into PostgreSQL reporting tables."""
+"""Load generated CSV and JSON outputs into the local PostgreSQL reporting database."""
 
 import json
 import os
@@ -15,6 +15,7 @@ from sqlalchemy.engine import URL
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 DB_ENV_KEYS = ("DB_USER", "DB_PASSWORD", "DB_HOST", "DB_PORT", "DB_NAME")
+LOCAL_DB_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 CSV_TABLE_MAP = {
     DATA_DIR / "Raw_Data" / "autotask_raw_data.csv": "autotask_raw",
@@ -57,6 +58,13 @@ def get_db_url() -> str:
     if missing:
         missing_text = ", ".join(missing)
         raise ValueError(f"Missing database configuration in .env: {missing_text}")
+
+    host = env_values["DB_HOST"].lower()
+    if host not in LOCAL_DB_HOSTS:
+        raise ValueError(
+            "This project is configured for local PostgreSQL only. "
+            "Set DB_HOST to localhost, 127.0.0.1, or ::1 in .env."
+        )
 
     sslmode = os.getenv("DB_SSLMODE", "").strip()
     query = {"sslmode": sslmode} if sslmode else None
@@ -122,7 +130,7 @@ def main() -> None:
     csv_results = load_csv_tables(engine)
     json_results = load_json_tables(engine)
 
-    print("PostgreSQL output load completed.")
+    print("Local PostgreSQL output load completed.")
     for result in csv_results + json_results:
         print(
             f"{result['table_name']}: {result['rows_loaded']} rows loaded "
