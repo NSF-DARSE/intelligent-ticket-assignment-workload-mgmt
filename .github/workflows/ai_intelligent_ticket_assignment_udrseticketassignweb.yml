@@ -28,14 +28,7 @@ jobs:
 
       - name: Validate project imports
         run: |
-          PYTHONDONTWRITEBYTECODE=1 python - <<'PY'
-          import sys
-          sys.path.insert(0, "src")
-          import interactive_dashboard
-          import load_outputs_to_postgres
-          import run_sandbox_pipeline
-          print("local app imports ok")
-          PY
+          PYTHONDONTWRITEBYTECODE=1 python -c "import sys; sys.path.insert(0, 'src'); import interactive_dashboard, load_outputs_to_postgres, run_sandbox_pipeline; print('local app imports ok')"
 
   deploy:
     runs-on: ubuntu-latest
