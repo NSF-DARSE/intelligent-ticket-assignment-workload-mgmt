@@ -50,7 +50,7 @@ DATETIME_COLUMNS = {
 }
 
 
-def get_db_url() -> str:
+def get_db_url() -> URL:
     load_dotenv(PROJECT_ROOT / ".env")
 
     env_values = {key: os.getenv(key, "").strip() for key in DB_ENV_KEYS}

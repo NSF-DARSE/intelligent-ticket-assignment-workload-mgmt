@@ -1,45 +1,65 @@
 # Release Notes
 
-## Current Working Configuration
+## Version 1.0.0
 
-The current project state delivers a complete ticket recommendation workflow from Autotask ingestion through PostgreSQL-backed dashboard reporting.
+This release delivers a local PostgreSQL-backed Autotask ticket assignment recommendation system with a Streamlit dashboard.
 
-### End-User Highlights
+## End-User Highlights
 
-- Top-3 technician recommendation engine for active tickets
+- Top-3 technician recommendations for active tickets
 - Skill-aware matching between tickets and employees
 - Hybrid text similarity using **BM25 + MiniLM**
-- Workload-aware balancing so one technician is not overloaded unfairly
-- SLA-aware and complexity-aware recommendation logic
-- Streamlit dashboard for review and dispatch simulation
+- Workload balancing to reduce over-assignment
+- SLA-aware and complexity-aware ranking
+- Local PostgreSQL reporting tables for reproducible dashboard access
+- Streamlit dashboard for operational review and dispatch simulation
 
-### Important Model Update
+## Model And Scoring Summary
 
-The active project configuration no longer uses:
-- TF-IDF retrieval
-- the standalone time-estimation model
-
-Instead, the recommendation pipeline now uses:
+The active recommendation pipeline uses:
 - BM25 lexical retrieval
-- MiniLM semantic similarity
-- historical resolution-hours hints derived from the top similar completed tickets
+- MiniLM semantic embeddings
+- historical ticket resolution hints from top similar completed tickets
+- employee skill alignment
+- technician workload and capacity penalties
+- SLA urgency and complexity fit
 
-### Installation Guide
+Removed from the active workflow:
+- standalone TF-IDF retrieval
+- standalone time-estimation model
 
-1. Create a virtual environment.
-2. Install dependencies from [requirements.txt](requirements.txt).
-3. Copy [.env.example](.env.example) to `.env` and fill in the required values.
-4. Run [main.py](main.py) commands or the individual scripts listed in [README.md](README.md).
+## Installation Guide
 
-### Current Command Surface
+1. Install Python `3.13`.
+2. Create and activate a virtual environment.
+3. Install dependencies from [requirements.txt](requirements.txt).
+4. Create a local PostgreSQL database named `autotask_local`.
+5. Copy [.env.example](.env.example) to `.env`.
+6. Fill in local PostgreSQL and Autotask credentials.
+7. Run `python main.py pipeline --all-tickets`.
+8. Run `python main.py dashboard`.
 
-- `main.py status` reports the presence of core project outputs.
-- `main.py pipeline` runs the supported end-to-end pipeline.
-- `main.py dashboard` launches the Streamlit interface.
-- `main.py load-postgres` refreshes PostgreSQL output tables from generated local files.
+## Current Command Surface
 
-### Known Issues
+- `main.py status`: reports core local output availability
+- `main.py pipeline`: runs the end-to-end workflow and loads local PostgreSQL
+- `main.py load-postgres`: reloads generated outputs into local PostgreSQL
+- `main.py dashboard`: launches Streamlit
+- `src/benchmark_pipeline.py`: records runtime and memory benchmark notes
 
-- Azure PostgreSQL access still depends on firewall and network configuration outside the repo.
-- The Streamlit dashboard is functional but still concentrated in one large file.
-- Some generated outputs remain local-only by design and are not committed to Git.
+## Release Readiness
+
+Included:
+- MIT license
+- dependency pins in `requirements.txt`
+- package metadata in `pyproject.toml`
+- CI workflow for tests
+- local validation workflow for imports
+- changelog, migration guide, known issues, API reference, and performance notes
+
+Before final submission, create a Git release tag:
+
+```powershell
+git tag -a v1.0.0 -m "Release v1.0.0"
+git push origin v1.0.0
+```

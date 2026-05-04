@@ -1,41 +1,50 @@
 # Migration Guide
 
-## Upgrading to Version 1.0.0
+## Upgrading To Version 1.0.0
 
-This repository is moving from an evolving project workspace to a cleaner release-style structure.
+This version moves the project to a cleaner release-style workflow centered on local PostgreSQL.
 
-### For Existing Team Members
+## For Existing Team Members
 
 1. Pull the latest `AI_Intelligent_Ticket_Assignment` branch.
-2. Recreate or refresh the local virtual environment if package versions changed.
-3. Copy your local secrets back into `.env` if you use a fresh checkout.
-4. Regenerate local outputs by running the pipeline again, because generated data is no longer tracked in Git.
-
-### Important Repository Changes
-- Generated datasets under `data/` are now local-only and ignored by Git.
-- Local skills input and Azure connection helper files are ignored by Git.
-- Database configuration must come from `.env`; source code no longer includes fallback credentials.
-- CI now runs an actual automated test suite.
-- The active text similarity stack is now BM25 + MiniLM.
-- The separate time-estimation model has been removed from the supported pipeline.
-
-### If You Were Depending on Old Tracked Data Files
-
-You now need to generate them locally:
+2. Recreate or refresh the virtual environment if dependencies changed.
+3. Copy `.env.example` to `.env` if needed.
+4. Set local PostgreSQL credentials in `.env`.
+5. Confirm `DB_HOST` is local: `localhost`, `127.0.0.1`, or `::1`.
+6. Regenerate local outputs with:
 
 ```powershell
 .\venv\Scripts\python.exe main.py pipeline --all-tickets
 ```
 
-Or run the individual scripts in the order documented in [README.md](README.md).
+## Important Changes
 
-### No Breaking User-Facing Interface Changes
+- Generated datasets under `data/` remain local-only and ignored by Git.
+- Database configuration must come from `.env`.
+- The dashboard reads from local PostgreSQL reporting tables.
+- Dispatch simulations are stored in local PostgreSQL.
+- CI runs automated tests.
+- The active similarity stack is BM25 + MiniLM.
+- The standalone TF-IDF and time-estimation model paths are no longer part of the supported workflow.
+
+## If You Used Azure PostgreSQL Previously
+
+The active workflow no longer targets Azure PostgreSQL. Replace Azure values in `.env` with local values:
+
+```env
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=autotask_local
+DB_SSLMODE=
+```
+
+The database helper rejects non-local hosts to prevent accidental cloud usage.
+
+## User-Facing Workflow
 
 The main workflow remains:
 - fetch data
 - process data
 - score recommendations
-- load PostgreSQL outputs
+- load local PostgreSQL outputs
 - view the Streamlit dashboard
-
-The biggest change is that the repository is now cleaner and safer for sharing and deployment.

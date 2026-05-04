@@ -26,4 +26,22 @@ dependencies = [
 ]
 
 [tool.setuptools]
-py-modules = []
+package-dir = {"" = "src"}
+py-modules = [
+  "assignment_scorer",
+  "autotask_api_client",
+  "benchmark_pipeline",
+  "clean_employee_skills",
+  "clean_ticket_data",
+  "complexity_scoring",
+  "db_connection",
+  "evaluate_full_recommendation_model",
+  "evaluate_similarity_model",
+  "export_raw_data",
+  "feature_engineering",
+  "fetch_sandbox_tickets",
+  "interactive_dashboard",
+  "load_outputs_to_postgres",
+  "nlp_ticket_similarity",
+  "run_sandbox_pipeline",
+]

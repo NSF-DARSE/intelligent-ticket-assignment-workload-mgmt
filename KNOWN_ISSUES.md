@@ -2,17 +2,22 @@
 
 ## Current Limitations
 
-### 1. Azure PostgreSQL connectivity depends on external network rules
-If the Azure database server is not configured for the client IP or the hosted app network path, the connection can fail even when the code and credentials are correct.
+### 1. Generated datasets are local-only
 
-### 2. Dashboard maintainability
-The Streamlit dashboard is feature-rich but still concentrated in a single large file. It works, but readability and long-term maintenance would improve if the UI were split into smaller modules.
+The repository does not commit generated datasets under `data/`. A fresh user must run the pipeline before the dashboard has populated reporting tables.
 
-### 3. Local generated outputs are not committed
-The repository intentionally does not include generated datasets. A new user must run the pipeline locally before seeing populated outputs.
+### 2. MiniLM may need a first-run download
 
-### 4. Live assignment to Autotask is not enabled
-The ticket assignment board currently supports dashboard-side simulation stored in PostgreSQL. It does not push assignment actions back to Autotask.
+The full NLP similarity step requires `sentence-transformers/all-MiniLM-L6-v2`. The benchmark can reuse cached local similarity outputs, but a full recomputation needs the model downloaded or already cached.
 
-### 5. Public deployment still needs cloud-side validation
-The repository is much closer to deployment-ready now, but Azure hosting still depends on correct environment variables, package installation, startup configuration, and networking.
+### 3. Dashboard maintainability
+
+The Streamlit dashboard is feature-rich but still concentrated in one large file. It is functional, but future maintainability would improve by splitting it into smaller view/data/helper modules.
+
+### 4. Dispatch actions are simulated
+
+Dashboard assignment actions are stored in local PostgreSQL table `autotask_dashboard_dispatch_actions`. They do not update Autotask itself.
+
+### 5. Local PostgreSQL is required
+
+The active project intentionally targets local PostgreSQL only. `DB_HOST` must be `localhost`, `127.0.0.1`, or `::1`.
