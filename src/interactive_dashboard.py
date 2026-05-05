@@ -1782,6 +1782,11 @@ def main() -> None:
                     color="recommendation_rank",
                     barmode="stack",
                     title="Top-3 Recommendation Load by Technician",
+                    color_discrete_map={
+                        "Rank 1": BRAND_COLORS["blue"],
+                        "Rank 2": BRAND_COLORS["green_light"],
+                        "Rank 3": BRAND_COLORS["orange"],
+                    },
                 )
                 fig.update_traces(
                     texttemplate="%{y}",
