@@ -11,7 +11,6 @@ import pandas as pd
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
-VENV_PYTHON = PROJECT_ROOT / "venv" / "Scripts" / "python.exe"
 
 PIPELINE_SCRIPT = PROJECT_ROOT / "src" / "run_sandbox_pipeline.py"
 DASHBOARD_SCRIPT = PROJECT_ROOT / "src" / "interactive_dashboard.py"
@@ -77,9 +76,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def ensure_python() -> Path:
-    if not VENV_PYTHON.exists():
-        raise FileNotFoundError(f"Virtual environment python was not found at {VENV_PYTHON}")
-    return VENV_PYTHON
+    """Return the best available Python executable for project commands."""
+    candidate_paths = [
+        PROJECT_ROOT / "venv" / "Scripts" / "python.exe",
+        PROJECT_ROOT / "venv" / "bin" / "python",
+    ]
+
+    for candidate in candidate_paths:
+        if candidate.exists():
+            return candidate
+
+    return Path(sys.executable)
 
 
 def run_command(command: list[str], label: str) -> int:

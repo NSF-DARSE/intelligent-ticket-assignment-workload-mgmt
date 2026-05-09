@@ -1,6 +1,13 @@
 # API Reference
 
-This project is script-driven. The interfaces below are the stable commands and callables used by teammates, reviewers, tests, and the dashboard.
+This project is script-driven. The interfaces below are the stable commands and
+callables used by teammates, reviewers, tests, and the dashboard.
+
+Important current scope:
+- the active runtime path supports **local PostgreSQL only**
+- TF-IDF and the old time estimation model are no longer part of the active flow
+- Azure deployment history may appear in branch history, but it is not the
+  supported Python runtime target described in this repository guide
 
 ## Main Launcher
 

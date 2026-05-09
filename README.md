@@ -1,298 +1,319 @@
 # Intelligent Ticket Assignment & Workload Management
 
-## Overview
+## What This Repository Is
 
-This project builds a reproducible, local PostgreSQL-backed recommendation workflow for Autotask service desk tickets. It ingests sandbox tickets, prepares clean analytical datasets, ranks technicians for active tickets, and presents the results in a Streamlit dashboard.
+This repository contains the **current working codebase** for an Autotask ticket
+recommendation workflow. It is designed to help a dispatcher review open tickets,
+compare them with historical work, and see the **top three recommended
+technicians** for each ticket.
 
-The pipeline:
-- fetches raw ticket data from the Autotask sandbox API
-- cleans and standardizes ticket records
-- engineers ticket, SLA, workload, and technician history features
-- normalizes employee skills from `Skillsdataset.csv`
-- compares open tickets with completed tickets using **BM25 + MiniLM**
-- scores ticket complexity from effort, SLA pressure, novelty, and keyword signals
-- ranks the top three technicians for each active ticket
-- stores generated results in **local PostgreSQL**
-- presents KPIs, technician views, recommendations, and dispatch simulation in Streamlit
+The project is intended to be:
+- understandable for a new teammate taking over the code
+- reproducible on a normal development machine
+- explainable enough for software engineering review and rubric-based assessment
 
-Generated datasets, `.env` secrets, local PostgreSQL credentials, and private Autotask inputs are intentionally local-only and are not committed to Git.
+## Current Supported Architecture
 
-## Architecture
+The active project flow is:
 
 ```text
 Autotask Sandbox API
         |
         v
-data/Raw_Data/*.csv
+Raw ticket export
         |
         v
-cleaning -> feature engineering -> skills -> BM25 + MiniLM -> complexity -> recommendations
+Cleaning -> Feature engineering -> Skill normalization
         |
         v
-local PostgreSQL tables
+BM25 + MiniLM similarity -> Complexity scoring -> Recommendation scoring
+        |
+        v
+Local PostgreSQL reporting tables
         |
         v
 Streamlit dashboard
 ```
 
-Primary local PostgreSQL tables:
-- `autotask_raw`
-- `autotask_cleaned_data`
-- `autotask_feature_engineered`
-- `autotask_open_tickets_dataset`
-- `autotask_ticket_similarity_matches`
-- `autotask_ticket_similarity_summary`
-- `autotask_complexity_scored`
-- `autotask_assignment_recommendations`
-- `autotask_dashboard_dispatch_actions`
+### Important Current Scope
 
-## Recommendation Design
+The current Python codebase supports:
+- **Autotask sandbox ticket ingestion**
+- **BM25 + MiniLM similarity**
+- **skill-aware and workload-aware recommendation scoring**
+- **local PostgreSQL reporting tables**
+- **Streamlit dashboard and dispatch simulation**
 
-The current similarity stack uses:
-- **BM25** for lexical retrieval
-- **MiniLM** (`sentence-transformers/all-MiniLM-L6-v2`) for semantic similarity
+The current Python codebase does **not** support:
+- TF-IDF in the active similarity model
+- the removed time estimation model
+- non-local PostgreSQL hosts in the active loader/runtime path
 
-Hybrid text score weights:
-- **BM25 = 0.40**
-- **MiniLM = 0.60**
+## Main Project Goal
 
-The recommendation layer combines text similarity with operational constraints:
-- required skill inference from title, description, issue type, and keyword signals
-- employee skill matching from `Skillsdataset.csv`
-- historical technician experience on similar tickets
-- current workload and estimated open hours
-- SLA urgency, ticket priority, and complexity class
+Given an open Autotask ticket, the system:
+1. prepares clean ticket text and operational metadata
+2. compares the ticket to historical completed tickets
+3. combines text similarity, skill fit, workload, SLA pressure, and complexity
+4. ranks the **top 3 technicians**
+5. shows those recommendations in the dashboard
 
-The model is intentionally explainable. Recommendation rows include score components and rationale fields so reviewers can inspect why a technician was ranked.
+## Core Model Design
 
-## Project Structure
+### Text Similarity
 
-```text
-Project_Autotask
-|-- .github/workflows/       # CI and local validation workflows
-|-- docs/
-|   |-- API_REFERENCE.md
-|   `-- PERFORMANCE.md
-|-- sql/
-|   `-- create_autotask_table.sql
-|-- src/
-|   |-- assignment_scorer.py
-|   |-- autotask_api_client.py
-|   |-- benchmark_pipeline.py
-|   |-- clean_employee_skills.py
-|   |-- clean_ticket_data.py
-|   |-- complexity_scoring.py
-|   |-- db_connection.py
-|   |-- feature_engineering.py
-|   |-- fetch_sandbox_tickets.py
-|   |-- interactive_dashboard.py
-|   |-- load_outputs_to_postgres.py
-|   |-- nlp_ticket_similarity.py
-|   `-- run_sandbox_pipeline.py
-|-- tests/
-|   |-- test_assignment_scorer.py
-|   |-- test_clean_ticket_data.py
-|   |-- test_database_config.py
-|   `-- test_feature_pipeline.py
-|-- CHANGELOG.md
-|-- KNOWN_ISSUES.md
-|-- LICENSE
-|-- MIGRATION_GUIDE.md
-|-- README.md
-|-- RELEASE_NOTES.md
-|-- SCORING_FORMULA.txt
-|-- main.py
-|-- pyproject.toml
-|-- requirements.txt
-`-- .env.example
-```
+The active text similarity model is:
+- **BM25 = 40%**
+- **MiniLM = 60%**
 
-## Prerequisites
+This logic lives in:
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\src\nlp_ticket_similarity.py](D:\MS 2024\SEM4\RSE\Project_Autotask\src\nlp_ticket_similarity.py)
 
-- Python `3.13`
-- Local PostgreSQL running on `localhost:5432`
-- Autotask API credentials
-- `Skillsdataset.csv` in the project root
-- Internet access the first time MiniLM is downloaded, unless the model is already cached
+### Recommendation Scoring
 
-The project has been run locally on Windows and validated in GitHub Actions on Ubuntu for dependency installation, import checks, and automated tests.
+The final technician ranking uses:
+- text expertise from BM25 + MiniLM
+- issue-type and skill alignment
+- queue/domain fit
+- account familiarity
+- workload balance
+- SLA urgency
+- complexity fit
 
-## Setup
+This logic lives in:
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\src\assignment_scorer.py](D:\MS 2024\SEM4\RSE\Project_Autotask\src\assignment_scorer.py)
 
-### 1. Create And Activate A Virtual Environment
+## Files New Teammates Should Read First
+
+If someone is taking over the project, read these in order:
+
+1. [D:\MS 2024\SEM4\RSE\Project_Autotask\README.md](D:\MS 2024\SEM4\RSE\Project_Autotask\README.md)
+2. [D:\MS 2024\SEM4\RSE\Project_Autotask\main.py](D:\MS 2024\SEM4\RSE\Project_Autotask\main.py)
+3. [D:\MS 2024\SEM4\RSE\Project_Autotask\src\run_sandbox_pipeline.py](D:\MS 2024\SEM4\RSE\Project_Autotask\src\run_sandbox_pipeline.py)
+4. [D:\MS 2024\SEM4\RSE\Project_Autotask\src\load_outputs_to_postgres.py](D:\MS 2024\SEM4\RSE\Project_Autotask\src\load_outputs_to_postgres.py)
+5. [D:\MS 2024\SEM4\RSE\Project_Autotask\src\interactive_dashboard.py](D:\MS 2024\SEM4\RSE\Project_Autotask\src\interactive_dashboard.py)
+
+## File Guide
+
+### Entry Points
+
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\main.py](D:\MS 2024\SEM4\RSE\Project_Autotask\main.py)
+  - simple launcher for pipeline, dashboard, load, and status commands
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\src\run_sandbox_pipeline.py](D:\MS 2024\SEM4\RSE\Project_Autotask\src\run_sandbox_pipeline.py)
+  - runs the supported pipeline stages in the correct order
+
+### Data Ingestion
+
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\src\autotask_api_client.py](D:\MS 2024\SEM4\RSE\Project_Autotask\src\autotask_api_client.py)
+  - low-level Autotask API client
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\src\fetch_sandbox_tickets.py](D:\MS 2024\SEM4\RSE\Project_Autotask\src\fetch_sandbox_tickets.py)
+  - fetches sandbox tickets and writes raw outputs
+
+### Data Preparation
+
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\src\clean_ticket_data.py](D:\MS 2024\SEM4\RSE\Project_Autotask\src\clean_ticket_data.py)
+  - normalizes ticket fields
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\src\feature_engineering.py](D:\MS 2024\SEM4\RSE\Project_Autotask\src\feature_engineering.py)
+  - creates training/open splits and ticket features
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\src\clean_employee_skills.py](D:\MS 2024\SEM4\RSE\Project_Autotask\src\clean_employee_skills.py)
+  - converts `Skillsdataset.csv` into profile and normalized skill tables
+
+### Modeling
+
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\src\nlp_ticket_similarity.py](D:\MS 2024\SEM4\RSE\Project_Autotask\src\nlp_ticket_similarity.py)
+  - BM25 + MiniLM similarity outputs
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\src\complexity_scoring.py](D:\MS 2024\SEM4\RSE\Project_Autotask\src\complexity_scoring.py)
+  - complexity score and reason generation
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\src\assignment_scorer.py](D:\MS 2024\SEM4\RSE\Project_Autotask\src\assignment_scorer.py)
+  - final recommendation ranking and explanation fields
+
+### Database And Dashboard
+
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\src\load_outputs_to_postgres.py](D:\MS 2024\SEM4\RSE\Project_Autotask\src\load_outputs_to_postgres.py)
+  - loads CSV/JSON outputs into PostgreSQL
+  - currently supports **local PostgreSQL only**
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\src\db_connection.py](D:\MS 2024\SEM4\RSE\Project_Autotask\src\db_connection.py)
+  - quick DB connectivity check
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\src\interactive_dashboard.py](D:\MS 2024\SEM4\RSE\Project_Autotask\src\interactive_dashboard.py)
+  - Streamlit dashboard
+
+### Evaluation And Benchmarking
+
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\src\evaluate_similarity_model.py](D:\MS 2024\SEM4\RSE\Project_Autotask\src\evaluate_similarity_model.py)
+  - evaluates BM25 + MiniLM similarity ranking
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\src\evaluate_full_recommendation_model.py](D:\MS 2024\SEM4\RSE\Project_Autotask\src\evaluate_full_recommendation_model.py)
+  - evaluates the full recommendation scorer
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\src\benchmark_pipeline.py](D:\MS 2024\SEM4\RSE\Project_Autotask\src\benchmark_pipeline.py)
+  - measures runtime and peak memory by stage
+
+### Utility Script
+
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\src\export_raw_data.py](D:\MS 2024\SEM4\RSE\Project_Autotask\src\export_raw_data.py)
+  - exports raw DB data for inspection
+  - useful support script, not part of the main pipeline
+
+## Setup For A New Developer
+
+### 1. Create A Virtual Environment
+
+PowerShell:
 
 ```powershell
 python -m venv venv
 .\venv\Scripts\activate
 ```
 
+Bash:
+
+```bash
+python -m venv venv
+source venv/bin/activate
+```
+
 ### 2. Install Dependencies
+
+PowerShell:
 
 ```powershell
 .\venv\Scripts\python.exe -m pip install --upgrade pip
 .\venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-Dependency metadata is also tracked in [pyproject.toml](pyproject.toml). Runtime pins live in [requirements.txt](requirements.txt).
+Bash:
 
-### 3. Create The Local PostgreSQL Database
+```bash
+./venv/bin/python -m pip install --upgrade pip
+./venv/bin/python -m pip install -r requirements.txt
+```
 
-Create a local database named `autotask_local` in pgAdmin or with `psql`:
+### 3. Add Local Configuration
+
+Copy:
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\.env.example](D:\MS 2024\SEM4\RSE\Project_Autotask\.env.example)
+
+to:
+- `.env`
+
+Fill in:
+- local PostgreSQL credentials
+- Autotask API credentials
+
+### 4. Provide The Skill Dataset
+
+Place this file in the project root:
+- `Skillsdataset.csv`
+
+### 5. Create The Local Database
+
+The active code expects a **local PostgreSQL database**. A common setup is:
 
 ```sql
 CREATE DATABASE autotask_local;
 ```
 
-The code intentionally rejects non-local database hosts. `DB_HOST` must be one of:
-- `localhost`
-- `127.0.0.1`
-- `::1`
-
-### 4. Configure `.env`
-
-Copy [.env.example](.env.example) to `.env` and fill in values:
-
-```env
-DB_USER=postgres
-DB_PASSWORD=your_local_postgres_password
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=autotask_local
-DB_SSLMODE=
-
-AUTOTASK_API_BASE_URL=https://webservices2.autotask.net/ATServicesRest
-AUTOTASK_API_USERNAME=your_autotask_username
-AUTOTASK_API_SECRET=your_autotask_secret
-AUTOTASK_API_INTEGRATION_CODE=your_tracking_identifier
-```
-
-### 5. Verify The Database Connection
+### 6. Check The Database Connection
 
 ```powershell
-.\venv\Scripts\python.exe src\db_connection.py
+.\venv\Scripts\python.exe .\src\db_connection.py
 ```
 
-Expected result: the script prints the connected database, connected user, and a row count for `autotask_raw` after data has been loaded.
+## Commands People Will Actually Use
 
-## Running The Project
-
-### Recommended One-Command Workflow
+### Full Pipeline
 
 ```powershell
-.\venv\Scripts\python.exe main.py pipeline --all-tickets
+.\venv\Scripts\python.exe .\main.py pipeline --all-tickets
 ```
 
-This command:
-1. fetches Autotask tickets
-2. cleans the raw data
-3. builds engineered features
-4. normalizes employee skills
-5. builds BM25 + MiniLM similarity outputs
-6. scores complexity
-7. generates technician recommendations
-8. loads CSV/JSON outputs into local PostgreSQL
-
-### Launch The Dashboard
+### Dashboard
 
 ```powershell
-.\venv\Scripts\python.exe main.py dashboard
+.\venv\Scripts\python.exe .\main.py dashboard
 ```
 
-Then open:
-
-```text
-http://localhost:8501
-```
-
-### Reload PostgreSQL From Existing Local Outputs
+### Reload PostgreSQL From Existing Outputs
 
 ```powershell
-.\venv\Scripts\python.exe main.py load-postgres
+.\venv\Scripts\python.exe .\main.py load-postgres
 ```
 
-Use this when CSV/JSON outputs already exist and only the local PostgreSQL reporting tables need refreshing.
-
-### Show Output Status
+### Project Status
 
 ```powershell
-.\venv\Scripts\python.exe main.py status
+.\venv\Scripts\python.exe .\main.py status
 ```
 
-## Individual Pipeline Scripts
+## What Gets Generated Locally
 
-| Step | Script | Main Output |
-|---|---|---|
-| Fetch tickets | `src/fetch_sandbox_tickets.py` | `data/Raw_Data/autotask_raw_data.csv`, `autotask_raw` |
-| Clean tickets | `src/clean_ticket_data.py` | `data/Cleaned_Data/autotask_cleaned_data.csv` |
-| Engineer features | `src/feature_engineering.py` | `data/Feature_Engineered/*.csv` |
-| Normalize skills | `src/clean_employee_skills.py` | `employee_skills_profile.csv`, `employee_skills_normalized.csv` |
-| NLP similarity | `src/nlp_ticket_similarity.py` | `ticket_similarity_matches.csv`, `ticket_similarity_summary.csv` |
-| Complexity scoring | `src/complexity_scoring.py` | `autotask_complexity_scored.csv` |
-| Recommendations | `src/assignment_scorer.py` | `assignment_recommendations.csv` |
-| PostgreSQL load | `src/load_outputs_to_postgres.py` | local PostgreSQL reporting tables |
-| Dashboard | `src/interactive_dashboard.py` | Streamlit UI |
+These are generated working artifacts and should not be treated as source code:
+- `data/Raw_Data/*`
+- `data/Cleaned_Data/*`
+- `data/Feature_Engineered/*`
+- `data/NLP/*`
+- `data/Recommendations/*`
+- `data/Evaluation/*`
+- `.env`
 
-## Testing And CI
+These files help the pipeline and dashboard run, but they are outputs, not the core implementation.
 
-Run the full test suite:
+## Testing
+
+Run the test suite:
 
 ```powershell
 .\venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Current coverage includes:
-- unit tests for technician key cleanup, skill inference, domain inference, and scoring helpers
-- unit tests for ticket cleaning and normalization
-- integration-style tests for feature engineering and skill profile generation
-- configuration tests that ensure database URLs are local-only
-- GitHub Actions for dependency installation, import validation, and test execution
+The current test suite covers:
+- ticket cleaning behavior
+- feature engineering outputs
+- recommendation scoring helpers
+- local database configuration restrictions
 
-The latest local validation run passed with all tests.
+## Benchmarking
 
-## Performance And Resource Awareness
-
-Performance notes are documented in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
-
-Run the benchmark:
+Run:
 
 ```powershell
-.\venv\Scripts\python.exe src\benchmark_pipeline.py
+.\venv\Scripts\python.exe .\src\benchmark_pipeline.py
 ```
 
-By default, the benchmark reuses cached local similarity outputs to avoid failing when MiniLM cannot be downloaded. To force full BM25 + MiniLM recomputation:
+Generated benchmark artifacts are written to:
+- `data/Evaluation/performance_benchmark.json`
+- `data/Evaluation/performance_benchmark.md`
 
-```powershell
-.\venv\Scripts\python.exe src\benchmark_pipeline.py --recompute-similarity
-```
+See:
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\docs\PERFORMANCE.md](D:\MS 2024\SEM4\RSE\Project_Autotask\docs\PERFORMANCE.md)
 
-The most expensive stages are MiniLM embedding generation and recommendation scoring over active-ticket/technician combinations. PostgreSQL loading adds I/O cost but improves traceability and dashboard reproducibility.
+## Known Readability Hotspot
 
-## Packaging And Release Readiness
+The largest remaining file is:
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\src\interactive_dashboard.py](D:\MS 2024\SEM4\RSE\Project_Autotask\src\interactive_dashboard.py)
 
-Release metadata:
-- package metadata: [pyproject.toml](pyproject.toml)
-- pinned dependencies: [requirements.txt](requirements.txt)
-- current project version: `1.0.0`
-- license: [LICENSE](LICENSE)
-- release notes: [RELEASE_NOTES.md](RELEASE_NOTES.md)
-- changelog: [CHANGELOG.md](CHANGELOG.md)
-- migration guide: [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md)
-- known issues: [KNOWN_ISSUES.md](KNOWN_ISSUES.md)
+It is working and validated, but if someone continues development, this is the first file worth splitting into smaller helpers or modules.
 
-Create a release tag after final validation:
+## Handoff Notes
 
-```powershell
-git tag -a v1.0.0 -m "Release v1.0.0"
-git push origin v1.0.0
-```
+If another teammate takes over this repo, the safest order is:
 
-## Known Limitations
+1. verify `.env`
+2. verify local PostgreSQL connection
+3. verify `Skillsdataset.csv` is present
+4. run `main.py status`
+5. run `main.py pipeline --all-tickets`
+6. run `main.py dashboard`
 
-- The dashboard is functional but still concentrated in one large Streamlit file.
-- Dispatch actions are simulated in local PostgreSQL and are not pushed back to Autotask.
-- Generated datasets are not committed; a fresh user must run the pipeline.
-- MiniLM must be downloadable or cached for a full recomputation run.
+If something looks wrong, inspect:
+- raw ticket data first
+- engineered outputs second
+- recommendation CSVs third
+- dashboard last
 
-## License
+## Supporting Docs
 
-This project is released under the MIT License. See [LICENSE](LICENSE) for the full license text.
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\docs\API_REFERENCE.md](D:\MS 2024\SEM4\RSE\Project_Autotask\docs\API_REFERENCE.md)
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\docs\PERFORMANCE.md](D:\MS 2024\SEM4\RSE\Project_Autotask\docs\PERFORMANCE.md)
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\CHANGELOG.md](D:\MS 2024\SEM4\RSE\Project_Autotask\CHANGELOG.md)
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\RELEASE_NOTES.md](D:\MS 2024\SEM4\RSE\Project_Autotask\RELEASE_NOTES.md)
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\KNOWN_ISSUES.md](D:\MS 2024\SEM4\RSE\Project_Autotask\KNOWN_ISSUES.md)
+- [D:\MS 2024\SEM4\RSE\Project_Autotask\MIGRATION_GUIDE.md](D:\MS 2024\SEM4\RSE\Project_Autotask\MIGRATION_GUIDE.md)
