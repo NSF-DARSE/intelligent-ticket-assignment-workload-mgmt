@@ -54,12 +54,17 @@ SLA_RULES = {
 }
 
 
+def parse_datetime_column(series: pd.Series) -> pd.Series:
+    """Parse mixed timestamp formats into UTC-aware datetimes."""
+    return pd.to_datetime(series, errors="coerce", utc=True, format="mixed")
+
+
 def load_cleaned_data(input_path: Path = CLEAN_DATA_PATH) -> pd.DataFrame:
     df = pd.read_csv(input_path)
 
     for column in DATETIME_COLUMNS:
         if column in df.columns:
-            df[column] = pd.to_datetime(df[column], errors="coerce")
+            df[column] = parse_datetime_column(df[column])
 
     return df
 
@@ -99,12 +104,12 @@ def add_priority_features(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def add_status_features(df: pd.DataFrame) -> pd.DataFrame:
+    now_utc = pd.Timestamp.now(tz="UTC")
+
     df["is_active_ticket"] = df["status"].isin(ACTIVE_STATUSES)
     df["is_waiting_state"] = df["status"].astype("string").str.startswith("Waiting", na=False)
     df["is_unassigned"] = df["primary_resource"].isna()
-    df["is_overdue_open"] = df["is_active_ticket"] & df["due_at"].notna() & (
-        df["due_at"] < pd.Timestamp.now()
-    )
+    df["is_overdue_open"] = df["is_active_ticket"] & df["due_at"].notna() & (df["due_at"] < now_utc)
     return df
 
 
@@ -136,6 +141,7 @@ def add_category_features(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def add_sla_features(df: pd.DataFrame) -> pd.DataFrame:
+    now_utc = pd.Timestamp.now(tz="UTC")
     text = df["ticket_text"].fillna("").str.lower()
     queue = df["queue"].fillna("").str.lower()
     issue_type = df["issue_type"].fillna("").str.lower()
@@ -183,7 +189,7 @@ def add_sla_features(df: pd.DataFrame) -> pd.DataFrame:
         & (df["first_response_minutes"] <= df["sla_initial_response_hours"] * 60)
     )
 
-    age_hours = (pd.Timestamp.now() - df["created_at"]).dt.total_seconds() / 3600
+    age_hours = (now_utc - df["created_at"]).dt.total_seconds() / 3600
     df["ticket_age_hours"] = age_hours.round(2)
     df["sla_age_ratio"] = (age_hours / df["sla_initial_response_hours"]).round(2)
     df["sla_breach_risk"] = df["is_active_ticket"] & (df["sla_age_ratio"] >= 1.0)
@@ -241,6 +247,10 @@ def build_technician_profiles(df: pd.DataFrame) -> pd.DataFrame:
 
 def engineer_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     feature_df = df.copy()
+
+    for column in DATETIME_COLUMNS:
+        if column in feature_df.columns:
+            feature_df[column] = parse_datetime_column(feature_df[column])
 
     feature_df = add_time_features(feature_df)
     feature_df = add_priority_features(feature_df)

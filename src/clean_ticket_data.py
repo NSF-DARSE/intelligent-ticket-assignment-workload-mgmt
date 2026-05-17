@@ -53,6 +53,11 @@ MISSING_TOKENS = {
 }
 
 
+def parse_datetime_column(series: pd.Series) -> pd.Series:
+    """Parse mixed timestamp formats into UTC-aware datetimes."""
+    return pd.to_datetime(series, errors="coerce", utc=True, format="mixed")
+
+
 def normalize_text_value(value: object) -> object:
     if pd.isna(value):
         return pd.NA
@@ -140,7 +145,9 @@ def clean_ticket_data(input_path: Path = RAW_DATA_PATH) -> tuple[pd.DataFrame, d
 
     for column in DATETIME_COLUMNS:
         if column in df.columns:
-            df[column] = pd.to_datetime(df[column], errors="coerce", dayfirst=True)
+            # Normalize all timestamps to UTC so downstream feature logic can
+            # safely compare dates from mixed source formats.
+            df[column] = parse_datetime_column(df[column])
 
     if "estimated_hours" in df.columns:
         df["estimated_hours"] = pd.to_numeric(df["estimated_hours"], errors="coerce")
