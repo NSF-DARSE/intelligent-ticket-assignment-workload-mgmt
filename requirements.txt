@@ -1,0 +1,9 @@
+pandas==2.3.3
+sqlalchemy==2.0.48
+psycopg2-binary==2.9.11
+python-dotenv==1.2.2
+numpy==2.4.3
+requests==2.32.5
+streamlit==1.55.0
+plotly==6.6.0
+sentence-transformers==5.4.1

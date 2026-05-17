@@ -209,3 +209,11 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+outputs/
+RESULTS FOR PHASE2/
+temp_test_write.txt
+.streamlit/
+data/
+Skillsdataset.csv
+src/azure_postgres_setup.py
+tests/tmp_*/
